@@ -20,17 +20,18 @@ import logging
 import os
 import shutil
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 
-from config import config
 from models import FareRecord, PriceChange
 
 logger = logging.getLogger(__name__)
 
 
 class SnapshotStore:
-    def __init__(self, data_dir: str = config.data_dir):
+    def __init__(self, data_dir: str, tz: tzinfo, history_retention_days: int):
         self.data_dir = data_dir
+        self.tz = tz
+        self.history_retention_days = history_retention_days
         self.latest_path = os.path.join(data_dir, "latest.json")
         self.history_dir = os.path.join(data_dir, "history")
         os.makedirs(self.history_dir, exist_ok=True)
@@ -48,7 +49,7 @@ class SnapshotStore:
             return raw.get("search_signature", ""), fares
         except Exception as e:
             # 壞檔不阻斷監控：備份後視為無基準
-            backup = f"{self.latest_path}.corrupt-{datetime.now(config.tz):%Y%m%d%H%M%S}"
+            backup = f"{self.latest_path}.corrupt-{datetime.now(self.tz):%Y%m%d%H%M%S}"
             shutil.copy(self.latest_path, backup)
             logger.warning(f"latest.json unreadable ({e}); backed up to {backup}, starting fresh")
             return None
@@ -57,7 +58,7 @@ class SnapshotStore:
         """Atomic write (temp file + replace) so a crash never leaves a half-written snapshot."""
         payload = {
             "search_signature": signature,
-            "updated_at": datetime.now(config.tz).isoformat(timespec="seconds"),
+            "updated_at": datetime.now(self.tz).isoformat(timespec="seconds"),
             "fares": [f.to_dict() for f in sorted(fares, key=_sort_key)],
         }
         fd, tmp_path = tempfile.mkstemp(dir=self.data_dir, suffix=".tmp")
@@ -71,7 +72,7 @@ class SnapshotStore:
     def append_history(self, changes: list[PriceChange]) -> None:
         if not changes:
             return
-        now = datetime.now(config.tz)
+        now = datetime.now(self.tz)
         path = os.path.join(self.history_dir, f"{now:%Y%m%d}.jsonl")
         with open(path, "a", encoding="utf-8") as f:
             for c in changes:
@@ -93,11 +94,11 @@ class SnapshotStore:
         self._cleanup_history()
 
     def _cleanup_history(self) -> None:
-        cutoff = datetime.now(config.tz) - timedelta(days=config.history_retention_days)
+        cutoff = datetime.now(self.tz) - timedelta(days=self.history_retention_days)
         for name in os.listdir(self.history_dir):
             stem = name.split(".")[0]
             try:
-                if datetime.strptime(stem, "%Y%m%d").replace(tzinfo=config.tz) < cutoff:
+                if datetime.strptime(stem, "%Y%m%d").replace(tzinfo=self.tz) < cutoff:
                     os.remove(os.path.join(self.history_dir, name))
             except ValueError:
                 continue

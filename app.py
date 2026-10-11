@@ -51,7 +51,7 @@ def scrape_all() -> tuple[list[FareRecord], dict[str, str]]:
                 errors[airline.code] = f"未知的資料來源 {airline.source!r} (可用: {', '.join(SCRAPERS)})"
                 logger.error(f"[{airline.code}] {errors[airline.code]}")
                 continue
-            result = scraper_cls(airline, config.trip, session, retry=config.browser.retry).run()
+            result = scraper_cls(airline, config.trip, session, config.tz, retry=config.browser.retry).run()
             if result.success:
                 fares.extend(result.data)
                 if not result.data:
@@ -63,7 +63,7 @@ def scrape_all() -> tuple[list[FareRecord], dict[str, str]]:
     for airline in airlines:
         if not airline.reference_page or airline.code in errors:
             continue
-        ref = OfficialFareReference(airline.code, airline.reference_page).fetch(config.trip)
+        ref = OfficialFareReference(airline.code, airline.reference_page, config.tz).fetch(config.trip)
         if ref is None:
             continue
         for fare in fares:
@@ -79,7 +79,7 @@ def run_round(dry_run: bool = False) -> RoundResult:
                         f"{trip.depart_date}{' ~ ' + trip.return_date if trip.is_round_trip else ''}")
 
     fares, errors = scrape_all()
-    store = SnapshotStore()
+    store = SnapshotStore(config.data_dir, config.tz, config.history_retention_days)
     snapshot = store.load()
     signature = trip.signature()
 
@@ -104,13 +104,13 @@ def run_round(dry_run: bool = False) -> RoundResult:
     if not fares and errors and len(errors) == len([a for a in config.airlines if a.enabled]):
         # 全部失敗：不覆寫上一輪資料，只送異常通知
         logger.error("All scrapers failed — keep previous snapshot")
-        views, alt = build_views(RoundResult(errors=errors))
-        dispatch(views, alt)
+        views, alt = build_views(RoundResult(errors=errors), config)
+        dispatch(views, alt, config)
         return result
 
-    views, alt = build_views(result)
+    views, alt = build_views(result, config)
     if views:
-        dispatch(views, alt)
+        dispatch(views, alt, config)
     store.save(signature, merged)
     store.append_history(result.changes)
     return result
@@ -192,18 +192,18 @@ def _sample_result() -> RoundResult:
 
 
 def test_notify() -> None:
-    views, alt = build_views(_sample_result())
+    views, alt = build_views(_sample_result(), config)
     logger.info(f"Sending {len(views)} sample card(s)…")
-    ok = dispatch(views, "[測試] " + alt)
+    ok = dispatch(views, "[測試] " + alt, config)
     logger.info("Test notification " + ("sent ✔" if ok else "FAILED ✘ (see log)"))
 
 
 def write_preview() -> None:
     os.makedirs("preview", exist_ok=True)
     sample = _sample_result()
-    views, alt = build_views(sample)
-    baseline_views, _ = build_views(RoundResult(fares=sample.fares, is_baseline=True))
-    error_views, _ = build_views(RoundResult(errors={"CI": "TimeoutError: Google Flights 回應逾時"}))
+    views, alt = build_views(sample, config)
+    baseline_views, _ = build_views(RoundResult(fares=sample.fares, is_baseline=True), config)
+    error_views, _ = build_views(RoundResult(errors={"CI": "TimeoutError: Google Flights 回應逾時"}), config)
     all_views = views + baseline_views + error_views
     cards = [adaptive_card.render(v) for v in all_views]
     messages = line_flex.render_messages(all_views, alt)

@@ -23,11 +23,11 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo
 
 import requests
 
-from config import TripConfig, config
+from config import TripConfig
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +68,13 @@ def parse_page_config(html: str) -> tuple[str, str] | None:
     return match.group("endpoint").replace("\\u002F", "/"), match.group("key")
 
 
-def _observed_local(search_date: str) -> str:
+def _observed_local(search_date: str, tz: tzinfo) -> str:
     """'2026-10-10T21:48:34.556+0000' → local ISO."""
     try:
         dt = datetime.strptime(search_date, "%Y-%m-%dT%H:%M:%S.%f%z")
     except ValueError:
         return ""
-    return dt.astimezone(config.tz).isoformat(timespec="minutes")
+    return dt.astimezone(tz).isoformat(timespec="minutes")
 
 
 def _brand(fare: dict) -> str:
@@ -85,7 +85,7 @@ def _brand(fare: dict) -> str:
     return out
 
 
-def pick_reference(payload: dict, trip: TripConfig) -> ReferenceFare | None:
+def pick_reference(payload: dict, trip: TripConfig, tz: tzinfo) -> ReferenceFare | None:
     """Lowest fare whose dates / journey type / cabin exactly match the monitored trip."""
     journey = "ROUND_TRIP" if trip.is_round_trip else "ONE_WAY"
     fare_class = _CABIN_FARE_CLASS[trip.cabin]
@@ -109,7 +109,7 @@ def pick_reference(payload: dict, trip: TripConfig) -> ReferenceFare | None:
                 total=int(round(price)),
                 currency=(fare.get("priceSpecification") or {}).get("currencyCode") or trip.currency,
                 fare_brand=_brand(fare),
-                observed_at=_observed_local(fare.get("searchDate", "")),
+                observed_at=_observed_local(fare.get("searchDate", ""), tz),
             ))
     return min(candidates, key=lambda r: r.total) if candidates else None
 
@@ -119,9 +119,10 @@ def pick_reference(payload: dict, trip: TripConfig) -> ReferenceFare | None:
 class OfficialFareReference:
     """Fetch the airline's published reference fare for the monitored trip (never raises)."""
 
-    def __init__(self, airline_code: str, page_url: str, timeout_sec: int = 30):
+    def __init__(self, airline_code: str, page_url: str, tz: tzinfo, timeout_sec: int = 30):
         self.airline_code = airline_code
         self.page_url = page_url
+        self.tz = tz
         self.timeout = timeout_sec
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": _USER_AGENT})
@@ -153,7 +154,7 @@ class OfficialFareReference:
                 "em-api-key": key, "Origin": origin, "Referer": origin + "/",
             })
             resp.raise_for_status()
-            ref = pick_reference(resp.json(), trip)
+            ref = pick_reference(resp.json(), trip, self.tz)
             if ref:
                 logger.info(f"[{self.airline_code}] 官網參考價 {ref.currency} {ref.total:,} ({ref.describe()})")
             else:

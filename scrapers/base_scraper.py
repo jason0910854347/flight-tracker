@@ -10,11 +10,11 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, tzinfo
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
-from config import AirlineConfig, BrowserConfig, TripConfig, config
+from config import AirlineConfig, BrowserConfig, TripConfig
 from models import FareRecord
 
 _USER_AGENT = (
@@ -108,10 +108,12 @@ class BaseScraper(ABC):
     source: str = "base"
     page_locale: str = "zh-TW"
 
-    def __init__(self, airline: AirlineConfig, trip: TripConfig, session: BrowserSession, retry: int = 2):
+    def __init__(self, airline: AirlineConfig, trip: TripConfig, session: BrowserSession, tz: tzinfo,
+                 retry: int = 2):
         self.airline = airline
         self.trip = trip
         self.session = session
+        self.tz = tz
         self.retry = retry
         self.logger = logging.getLogger(f"scraper.{self.source}.{airline.code}")
 
@@ -135,7 +137,7 @@ class BaseScraper(ABC):
                 fares = self.scrape(page)
                 self.logger.info(f"{self.tag} {self.source}: {len(fares)} fares ({time.time() - start:.1f}s)")
                 return ScrapeResult(
-                    source=self.source, airline=self.airline.code, scraped_at=datetime.now(config.tz),
+                    source=self.source, airline=self.airline.code, scraped_at=datetime.now(self.tz),
                     success=True, data=fares, duration_sec=time.time() - start,
                 )
             except Exception as e:
@@ -153,15 +155,14 @@ class BaseScraper(ABC):
 
         self.logger.error(f"{self.tag} {self.source}: all attempts failed — {last_error}")
         return ScrapeResult(
-            source=self.source, airline=self.airline.code, scraped_at=datetime.now(config.tz),
+            source=self.source, airline=self.airline.code, scraped_at=datetime.now(self.tz),
             success=False, error=last_error, duration_sec=time.time() - start,
         )
 
     # ── Shared Utilities ────────────────────────────────
 
-    @staticmethod
-    def now_iso() -> str:
-        return datetime.now(config.tz).isoformat(timespec="seconds")
+    def now_iso(self) -> str:
+        return datetime.now(self.tz).isoformat(timespec="seconds")
 
     def new_record(self, **kwargs) -> FareRecord:
         """FareRecord pre-filled with trip / airline fields (kwargs override defaults)."""

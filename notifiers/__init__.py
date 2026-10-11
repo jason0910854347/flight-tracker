@@ -6,7 +6,7 @@ enabled channel (Webhook Adaptive Card / LINE Flex Message).
 import logging
 from datetime import datetime
 
-from config import AppConfig, config
+from config import AppConfig
 from models import DOWN, NEW, REMOVED, UP, PriceChange, RoundResult
 from notifiers.card_view import CardView, change_view, error_view, money, signed_money, summary_view
 from notifiers.senders import LineNotifier, WebhookNotifier
@@ -32,7 +32,7 @@ def _alt_text(changes: list[PriceChange], fallback: str) -> str:
     return "✈ 機票價格變動：" + "；".join(parts) + more
 
 
-def build_views(result: RoundResult, cfg: AppConfig = config) -> tuple[list[CardView], str]:
+def build_views(result: RoundResult, cfg: AppConfig) -> tuple[list[CardView], str]:
     """Decide which cards this round deserves."""
     brand = {a.code: a.color for a in cfg.airlines}
     names = {a.code: a.name for a in cfg.airlines}
@@ -57,23 +57,23 @@ def build_views(result: RoundResult, cfg: AppConfig = config) -> tuple[list[Card
         alt = _alt_text(notable, "✈ 機票價格變動")
 
     if result.errors and rules.notify_on_error:
-        views.append(error_view(result.errors, names, datetime.now(config.tz).strftime("%Y/%m/%d %H:%M")))
+        views.append(error_view(result.errors, names, datetime.now(cfg.tz).strftime("%Y/%m/%d %H:%M")))
         if not views[:-1]:
             alt = "⚠ 機票價格監控：資料來源抓取失敗"
     return views, alt
 
 
-def get_notifiers(cfg: AppConfig = config) -> list:
-    notifiers = []
+def get_notifiers(cfg: AppConfig) -> list[WebhookNotifier | LineNotifier]:
+    notifiers: list[WebhookNotifier | LineNotifier] = []
     for notifier in (WebhookNotifier(cfg.webhook), LineNotifier(cfg.line)):
         if notifier.ready:
             notifiers.append(notifier)
-        elif getattr(cfg, notifier.name.upper()).enabled:
+        elif notifier.cfg.enabled:
             logger.warning(f"[{notifier.name}] enabled but credentials/URL missing — skipped")
     return notifiers
 
 
-def dispatch(views: list[CardView], alt_text: str, cfg: AppConfig = config) -> bool:
+def dispatch(views: list[CardView], alt_text: str, cfg: AppConfig) -> bool:
     if not views:
         return True
     notifiers = get_notifiers(cfg)

@@ -1,11 +1,14 @@
 """Unit tests for the official fare reference parser (no network)."""
 
+from datetime import timedelta, timezone
+
 from config import config
 from models import NEW, PriceChange, RoundResult
 from notifiers import build_views
 from notifiers.card_view import change_view
 from scrapers.official_fare_reference import parse_page_config, pick_reference
 
+TZ = timezone(timedelta(hours=8))
 PAGE = ('..."histogram":{"config":{"endpoint":"https:\u002F\u002Fopenair-california.airtrfx.com\u002Fairfare-sputnik-service'
         '\u002Fv3\u002F%%tenantCode%%\u002Ffares\u002Fhistogram-distribution","axiosConfig":{"headers":'
         '{"em-api-key":"KEY123"}}}}...')
@@ -38,7 +41,7 @@ def test_pick_reference_exact_dates_only():
         _fare("2026-11-12", "", 7000, journey="ONE_WAY"),  # 單程
         _fare("2026-11-12", "2026-11-16", 30000, cls="BUSINESS"),
     ]}]}
-    ref = pick_reference(payload, trip)
+    ref = pick_reference(payload, trip, TZ)
     assert ref.total == 14382
     assert ref.fare_brand == "經濟艙 基本／標準"
     assert ref.observed_at.startswith("2026-10-11T05:48")   # UTC → UTC+8
@@ -46,7 +49,7 @@ def test_pick_reference_exact_dates_only():
 
 
 def test_pick_reference_none():
-    assert pick_reference({"histogram": []}, config.trip) is None
+    assert pick_reference({"histogram": []}, config.trip, TZ) is None
 
 
 def test_reference_shown_on_cards(fare_factory):

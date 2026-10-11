@@ -2,13 +2,16 @@
 
 import json
 import os
+from datetime import timedelta, timezone
 
 from models import UP, PriceChange
 from storage import SnapshotStore
 
+TZ = timezone(timedelta(hours=8))
+
 
 def test_save_and_load_roundtrip(tmp_path, fare_factory):
-    store = SnapshotStore(str(tmp_path))
+    store = SnapshotStore(str(tmp_path), TZ, history_retention_days=90)
     assert store.load() is None
     store.save("sig-1", [fare_factory(), fare_factory(airline="CI", flight_no="CI783", price_base=None)])
     signature, fares = store.load()
@@ -25,7 +28,7 @@ def test_save_and_load_roundtrip(tmp_path, fare_factory):
 
 
 def test_corrupt_snapshot_is_backed_up(tmp_path):
-    store = SnapshotStore(str(tmp_path))
+    store = SnapshotStore(str(tmp_path), TZ, history_retention_days=90)
     with open(store.latest_path, "w", encoding="utf-8") as f:
         f.write("{not json")
     assert store.load() is None
@@ -33,7 +36,7 @@ def test_corrupt_snapshot_is_backed_up(tmp_path):
 
 
 def test_append_history(tmp_path, fare_factory):
-    store = SnapshotStore(str(tmp_path))
+    store = SnapshotStore(str(tmp_path), TZ, history_retention_days=90)
     store.append_history([PriceChange(UP, fare_factory(price_total=10248), fare_factory(), diff=400, diff_percent=4.06)])
     files = os.listdir(store.history_dir)
     assert len(files) == 1
