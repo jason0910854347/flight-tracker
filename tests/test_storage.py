@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from models import UP, PriceChange
 from storage import SnapshotStore
@@ -43,3 +43,31 @@ def test_append_history(tmp_path, fare_factory):
     with open(os.path.join(store.history_dir, files[0]), encoding="utf-8") as f:
         line = json.loads(f.readline())
     assert line["kind"] == "up" and line["old_total"] == 9848 and line["new_total"] == 10248
+
+NOW = datetime(2026, 10, 11, 12, 0, tzinfo=TZ)
+
+
+def fixed_clock():
+    return NOW
+
+
+def test_clock_drives_timestamps_and_history_file(tmp_path, fare_factory):
+    store = SnapshotStore(str(tmp_path), TZ, history_retention_days=90, clock=fixed_clock)
+    store.save("sig", [fare_factory()])
+    with open(store.latest_path, encoding="utf-8") as f:
+        assert json.load(f)["updated_at"] == "2026-10-11T12:00:00+08:00"
+
+    store.append_history([PriceChange(UP, fare_factory(price_total=10248), fare_factory(), diff=400, diff_percent=4.06)])
+    assert os.listdir(store.history_dir) == ["20261011.jsonl"]
+    with open(os.path.join(store.history_dir, "20261011.jsonl"), encoding="utf-8") as f:
+        assert json.loads(f.readline())["at"] == "2026-10-11T12:00:00+08:00"
+
+
+def test_history_retention_boundary(tmp_path, fare_factory):
+    """cutoff = now - 90 days = 2026-07-13 12:00; a day file goes once its start-of-day is before cutoff."""
+    store = SnapshotStore(str(tmp_path), TZ, history_retention_days=90, clock=fixed_clock)
+    for name in ("20260712.jsonl", "20260713.jsonl", "20260714.jsonl", "notes.txt"):
+        open(os.path.join(store.history_dir, name), "w").close()
+
+    store.append_history([PriceChange(UP, fare_factory(price_total=10248), fare_factory(), diff=400, diff_percent=4.06)])
+    assert sorted(os.listdir(store.history_dir)) == ["20260714.jsonl", "20261011.jsonl", "notes.txt"]

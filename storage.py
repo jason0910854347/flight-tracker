@@ -20,17 +20,21 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from datetime import datetime, timedelta, tzinfo
 
 from models import FareRecord, PriceChange
 
 logger = logging.getLogger(__name__)
 
+Clock = Callable[[], datetime]   # returns an aware 'now' (injectable for tests)
+
 
 class SnapshotStore:
-    def __init__(self, data_dir: str, tz: tzinfo, history_retention_days: int):
+    def __init__(self, data_dir: str, tz: tzinfo, history_retention_days: int, clock: Clock | None = None):
         self.data_dir = data_dir
         self.tz = tz
+        self.clock: Clock = clock or (lambda: datetime.now(tz))
         self.history_retention_days = history_retention_days
         self.latest_path = os.path.join(data_dir, "latest.json")
         self.history_dir = os.path.join(data_dir, "history")
@@ -49,7 +53,7 @@ class SnapshotStore:
             return raw.get("search_signature", ""), fares
         except Exception as e:
             # 壞檔不阻斷監控：備份後視為無基準
-            backup = f"{self.latest_path}.corrupt-{datetime.now(self.tz):%Y%m%d%H%M%S}"
+            backup = f"{self.latest_path}.corrupt-{self.clock():%Y%m%d%H%M%S}"
             shutil.copy(self.latest_path, backup)
             logger.warning(f"latest.json unreadable ({e}); backed up to {backup}, starting fresh")
             return None
@@ -58,7 +62,7 @@ class SnapshotStore:
         """Atomic write (temp file + replace) so a crash never leaves a half-written snapshot."""
         payload = {
             "search_signature": signature,
-            "updated_at": datetime.now(self.tz).isoformat(timespec="seconds"),
+            "updated_at": self.clock().isoformat(timespec="seconds"),
             "fares": [f.to_dict() for f in sorted(fares, key=_sort_key)],
         }
         fd, tmp_path = tempfile.mkstemp(dir=self.data_dir, suffix=".tmp")
@@ -72,7 +76,7 @@ class SnapshotStore:
     def append_history(self, changes: list[PriceChange]) -> None:
         if not changes:
             return
-        now = datetime.now(self.tz)
+        now = self.clock()
         path = os.path.join(self.history_dir, f"{now:%Y%m%d}.jsonl")
         with open(path, "a", encoding="utf-8") as f:
             for c in changes:
@@ -94,7 +98,7 @@ class SnapshotStore:
         self._cleanup_history()
 
     def _cleanup_history(self) -> None:
-        cutoff = datetime.now(self.tz) - timedelta(days=self.history_retention_days)
+        cutoff = self.clock() - timedelta(days=self.history_retention_days)
         for name in os.listdir(self.history_dir):
             stem = name.split(".")[0]
             try:

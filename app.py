@@ -138,9 +138,29 @@ def _log_round(result: RoundResult) -> None:
 
 # ── Loop ────────────────────────────────────────────────
 
+def reload_config(current: AppConfig) -> AppConfig:
+    """
+    Re-read .env before the next loop round (no restart needed).
+    Invalid settings keep the current config. Logging settings (LOG_* / TIMEZONE_OFFSET for log
+    timestamps) are fixed at startup.
+    """
+    try:
+        new = load_config()
+    except ConfigError as e:
+        logger.error(f"[config] .env invalid, keep previous settings: {e}")
+        return current
+    if new == current:
+        return current
+    logger.info("[config] .env changed — new settings apply from this round")
+    if (new.log_file_level, new.log_retention_days, new.timezone_offset) != \
+            (current.log_file_level, current.log_retention_days, current.timezone_offset):
+        logger.warning("[config] LOG_* / TIMEZONE_OFFSET changes for logging take effect after restart")
+    return new
+
+
 def run_loop(cfg: AppConfig) -> None:
-    interval = cfg.check_interval_minutes
-    logger.info(f"Loop mode: every {interval} min (± {cfg.check_jitter_minutes} min jitter). Ctrl+C to stop.")
+    logger.info(f"Loop mode: every {cfg.check_interval_minutes} min (± {cfg.check_jitter_minutes} min jitter), "
+                ".env re-read before each round. Ctrl+C to stop.")
     while True:
         rotate_if_needed()
         try:
@@ -149,10 +169,11 @@ def run_loop(cfg: AppConfig) -> None:
             # 單輪失敗不中斷監控
             logger.error(f"Round crashed: {e}", exc_info=True)
         jitter = random.uniform(-cfg.check_jitter_minutes, cfg.check_jitter_minutes)
-        wait_sec = max(60.0, (interval + jitter) * 60)
+        wait_sec = max(60.0, (cfg.check_interval_minutes + jitter) * 60)
         next_at = datetime.now(cfg.tz) + timedelta(seconds=wait_sec)
         logger.info(f"Next round at {next_at:%Y-%m-%d %H:%M:%S}")
         time.sleep(wait_sec)
+        cfg = reload_config(cfg)
 
 
 # ── Samples (test-notify / preview) ─────────────────────

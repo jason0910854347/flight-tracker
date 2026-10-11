@@ -2,7 +2,7 @@
 Configuration loader — parses all settings from environment variables (.env).
 Trip / airline / notification settings are all driven by .env (no hard-coded routes).
 
-    load_config()                 → read .env + os.environ (normal run)
+    load_config()                 → read .env + os.environ (normal run; os.environ wins)
     load_config({"KEY": "..."})   → parse a plain mapping (tests, no .env / os.environ involved)
 """
 
@@ -13,7 +13,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
+
+
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 
 
 class ConfigError(ValueError):
@@ -328,11 +331,19 @@ class AppConfig:
         return [a for a in self.airlines if a.enabled]
 
 
+def read_env(env_file: str = ENV_FILE) -> dict[str, str]:
+    """
+    .env values overlaid with real environment variables (os.environ wins).
+    os.environ is not modified, so re-reading picks up later edits to .env (loop mode).
+    """
+    file_values = {k: v for k, v in dotenv_values(env_file).items() if v is not None}
+    return {**file_values, **os.environ}
+
+
 def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
-    """Parse settings from env (default: .env loaded into os.environ). Raises ConfigError."""
+    """Parse settings from env (default: read_env()). Raises ConfigError."""
     if env is None:
-        load_dotenv()
-        env = os.environ
+        env = read_env()
     return AppConfig(
         timezone_offset=_optional_int(env, "TIMEZONE_OFFSET", 8),
         timezone_label=_optional(env, "TIMEZONE_LABEL", "UTC+8 Asia/Taipei"),

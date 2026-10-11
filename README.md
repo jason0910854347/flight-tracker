@@ -19,7 +19,7 @@ python app.py --loop               # 開始持續監控（每 CHECK_INTERVAL_MIN
 | 指令 | 說明 |
 |------|------|
 | `python app.py` | 執行一輪（抓取 → 比對 → 推送 → 寫入 data/） |
-| `python app.py --loop` | 內建迴圈持續監控，單輪失敗不中斷 |
+| `python app.py --loop` | 內建迴圈持續監控，單輪失敗不中斷；每輪前重新讀取 `.env`（改設定免重啟） |
 | `python app.py --dry-run` | 只抓取比對，不推送、不寫入 data/ |
 | `python app.py --test-notify` | 推送範例卡片（漲價 / 降價 / 摘要） |
 | `python app.py --preview` | 產生 `preview/cards_preview.html` 卡片設計預覽（不連網推送） |
@@ -47,6 +47,7 @@ Round
 - 某航空本輪抓取失敗 → 沿用其上一輪資料，**不會**誤報「全部下架」，並推送異常卡。
 - 全部航空都失敗 → 不覆寫 data/latest.json。
 - `.env` 行程條件變更 → 自動重新建立基準，不與舊資料比對。
+- `--loop` 模式每輪前重新讀取 `.env`；新設定有誤時沿用舊設定並記錄錯誤。`LOG_*` 與 log 時區需重啟才生效。系統環境變數優先於 `.env`。
 - 價差門檻 `NOTIFY_MIN_CHANGE_AMOUNT` / `NOTIFY_MIN_CHANGE_PERCENT` 過濾小幅波動。
 
 ---
