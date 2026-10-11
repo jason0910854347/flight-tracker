@@ -28,7 +28,7 @@ from models import DOWN, NEW, REMOVED, UP, FareRecord, PriceChange, RoundResult
 from notifiers import build_views, dispatch
 from notifiers import adaptive_card, line_flex
 from notifiers.preview_html import build_preview_html
-from price_diff import diff_fares
+from price_diff import diff_fares, seat_alerts
 from scrapers import SCRAPERS, BrowserSession
 from scrapers.official_fare_reference import OfficialFareReference
 from storage import SnapshotStore
@@ -84,7 +84,9 @@ def run_round(cfg: AppConfig, dry_run: bool = False) -> RoundResult:
     signature = trip.signature()
 
     result = RoundResult(fares=fares, errors=errors)
-    if snapshot is None or snapshot[0] != signature:
+    comparable = snapshot is not None and snapshot[0] == signature
+    result.seat_alerts = seat_alerts(snapshot[1] if comparable else None, fares, cfg.notify.low_seats)
+    if not comparable:
         if snapshot is not None:
             logger.info("Search conditions changed since last round → new baseline (no diff)")
         result.is_baseline = True
@@ -132,6 +134,10 @@ def _log_round(result: RoundResult) -> None:
             f = c.fare
             logger.info(f"  [{c.kind}] {f.airline} {f.flight_no} {f.depart_date} {f.depart_time} "
                         f"{c.previous.price_total if c.previous else '-'} → {c.current.price_total if c.current else '-'}")
+    for a in result.seat_alerts:
+        before = f"{a.previous_seats} → " if a.previous_seats is not None else ""
+        logger.warning(f"  [low-seats] {a.airline} {a.flight_no} {a.leg} {a.depart_date} {a.depart_time} "
+                       f"座位 {before}{a.seats} (門檻 NOTIFY_LOW_SEATS)")
     for code, err in result.errors.items():
         logger.error(f"  [{code}] FAILED: {err}")
 
@@ -212,7 +218,9 @@ def _sample_result(cfg: AppConfig) -> RoundResult:
         PriceChange(DOWN, ci_new, ci_old, diff=-600, diff_percent=-600 / 11167 * 100),
         PriceChange(UP, jx_new, jx_old, diff=400, diff_percent=400 / 9848 * 100, base_diff=400),
     ]
-    return RoundResult(fares=[jx_new, ci_new], changes=changes)
+    # 回程範例座位 4 位 → NOTIFY_LOW_SEATS ≥ 5 時會出現範例「座位告急」卡
+    alerts = seat_alerts(None, [jx_new], cfg.notify.low_seats)
+    return RoundResult(fares=[jx_new, ci_new], changes=changes, seat_alerts=alerts)
 
 
 def test_notify(cfg: AppConfig) -> None:

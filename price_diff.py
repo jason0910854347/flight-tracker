@@ -10,7 +10,7 @@ Rules:
 """
 
 from config import NotifyConfig
-from models import DOWN, NEW, REMOVED, UP, FareRecord, PriceChange
+from models import DOWN, NEW, REMOVED, UP, FareRecord, PriceChange, SeatAlert
 
 
 def diff_fares(
@@ -80,3 +80,72 @@ def lowest_by_airline(fares: list[FareRecord]) -> dict[str, FareRecord]:
         if current is None or price < (current.comparable_price or 0):
             best[fare.airline] = fare
     return best
+
+
+# ── Seat alerts ─────────────────────────────────────────
+
+def _legs(fare: FareRecord) -> list[tuple[tuple, dict]]:
+    """Split an itinerary into its flights (去程 / 回程) with their seat info."""
+    legs = [(
+        (fare.airline, "去程", fare.flight_no, fare.depart_date, fare.depart_time),
+        {"leg": "去程", "origin": fare.origin, "destination": fare.destination,
+         "flight_no": fare.flight_no, "depart_date": fare.depart_date, "depart_time": fare.depart_time,
+         "arrive_time": fare.arrive_time, "seats": fare.seats_left, "seat_classes": fare.seat_classes},
+    )]
+    if fare.return_flight_no:
+        legs.append((
+            (fare.airline, "回程", fare.return_flight_no, fare.return_depart_date, fare.return_depart_time),
+            {"leg": "回程", "origin": fare.destination, "destination": fare.origin,
+             "flight_no": fare.return_flight_no, "depart_date": fare.return_depart_date,
+             "depart_time": fare.return_depart_time, "arrive_time": fare.return_arrive_time,
+             "seats": fare.return_seats_left, "seat_classes": fare.return_seat_classes},
+        ))
+    return legs
+
+
+def seat_alerts(previous: list[FareRecord] | None, current: list[FareRecord], threshold: int) -> list[SeatAlert]:
+    """
+    Flights whose cheapest-fare seats are below `threshold`.
+
+    De-duplicated per flight (a return flight shared by several round-trip combos alerts once).
+    Fires when a flight first drops below the threshold, or drops further — not every round.
+    previous=None (baseline) → every flight currently below the threshold.
+    """
+    if threshold <= 0:
+        return []
+
+    prev_seats: dict[tuple, int | None] = {}
+    for fare in previous or []:
+        for key, leg in _legs(fare):
+            if leg["seats"] is not None:
+                prev_seats[key] = leg["seats"]
+
+    flights: dict[tuple, tuple[dict, FareRecord, int | None]] = {}
+    for fare in current:
+        for key, leg in _legs(fare):
+            if leg["seats"] is None:
+                continue
+            price = fare.comparable_price
+            if key not in flights:
+                flights[key] = (leg, fare, price)
+            else:
+                _, best_fare, best_price = flights[key]
+                if price is not None and (best_price is None or price < best_price):
+                    flights[key] = (leg, fare, price)
+
+    alerts = []
+    for key, (leg, fare, price) in flights.items():
+        seats, before = leg["seats"], prev_seats.get(key)
+        if seats >= threshold:
+            continue
+        if before is not None and before < threshold and seats >= before:
+            continue   # 已通知過且沒有再減少
+        alerts.append(SeatAlert(
+            airline=fare.airline, airline_name=fare.airline_name, trip_type=fare.trip_type, cabin=fare.cabin,
+            leg=leg["leg"], origin=leg["origin"], destination=leg["destination"], flight_no=leg["flight_no"],
+            depart_date=leg["depart_date"], depart_time=leg["depart_time"], arrive_time=leg["arrive_time"],
+            seats=seats, previous_seats=before, seat_classes=leg["seat_classes"],
+            price_from=price, currency=fare.currency, booking_url=fare.booking_url, last_updated=fare.last_updated,
+        ))
+    alerts.sort(key=lambda a: (a.seats, a.depart_date, a.depart_time))
+    return alerts

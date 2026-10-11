@@ -177,5 +177,5 @@ def test_baseline_rows_show_seats(fare_factory, app_config):
     views, _ = build_views(RoundResult(fares=fares, is_baseline=True), app_config)
     jx = next(r for r in views[0].rows if r.title.startswith("星宇"))
     ci = next(r for r in views[0].rows if r.title.startswith("中華"))
-    assert "💺 座位 去 9+ · 回 2" in jx.detail
-    assert "💺" not in ci.detail
+    assert "".join(t for t, _ in jx.seat_parts) == "💺 座位 去 9+ · 回 2"
+    assert "💺" not in ci.detail and ci.seat_parts == []

@@ -66,7 +66,11 @@ function render(node, parentLayout) {
   }
   if (node.type === 'text') {
     const el = document.createElement('div'); el.className = 't ' + (node.wrap ? 'wrap' : 'nowrap');
-    el.textContent = node.text; el.style.fontSize = (SIZE[node.size] || 16) + 'px';
+    if (node.contents && node.contents.length) {
+      node.contents.forEach(sp => { const s = document.createElement('span'); s.textContent = sp.text;
+        if (sp.color) s.style.color = sp.color; if (sp.weight === 'bold') s.style.fontWeight = '700'; el.appendChild(s); });
+    } else { el.textContent = node.text; }
+    el.style.fontSize = (SIZE[node.size] || 16) + 'px';
     el.style.color = node.color || '#111'; if (node.weight === 'bold') el.style.fontWeight = '700';
     if (node.align) el.style.textAlign = { start: 'left', end: 'right', center: 'center' }[node.align];
     if (node.decoration === 'line-through') el.style.textDecoration = 'line-through';

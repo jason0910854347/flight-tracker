@@ -85,6 +85,7 @@ UP = "up"            # 漲價
 DOWN = "down"        # 降價
 NEW = "new"          # 新增班次 / 重新開賣
 REMOVED = "removed"  # 班次消失 / 售完
+LOW_SEATS = "low_seats"  # 座位告急
 
 
 @dataclass
@@ -109,6 +110,30 @@ class RoundResult:
     changes: list[PriceChange] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)   # airline code → error message
     is_baseline: bool = False                               # 無上一輪資料 (或搜尋條件已變更)
+    seat_alerts: list["SeatAlert"] = field(default_factory=list)
+
+
+@dataclass
+class SeatAlert:
+    """One flight (one leg at one time) whose cheapest-fare seats fell below NOTIFY_LOW_SEATS."""
+    airline: str
+    airline_name: str
+    trip_type: str
+    cabin: str
+    leg: str                     # 去程 / 回程
+    origin: str                  # 該航段出發地
+    destination: str
+    flight_no: str
+    depart_date: str
+    depart_time: str
+    arrive_time: str
+    seats: int                   # 目前最低票價可售座位
+    previous_seats: int | None   # 上一輪 (None = 首次 / 無資料)
+    seat_classes: str            # 該艙等各票價座位
+    price_from: int | None       # 含此航班的組合中最低每人含稅價
+    currency: str
+    booking_url: str
+    last_updated: str
 
 
 def in_time_window(hhmm: str, window: tuple[str, str] | None) -> bool:

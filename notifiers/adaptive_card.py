@@ -88,6 +88,32 @@ def _price(view: CardView) -> dict[str, Any] | None:
     return {"type": "Container", "style": theme.ac_style, "spacing": "Medium", "items": items}
 
 
+def _seat_runs(parts: list[tuple[str, bool]]) -> list[dict[str, Any]]:
+    """💺 座位 去 9+ · 回 3 — RichTextBlock so only the low leg is red."""
+    if not parts:
+        return []
+    runs = [{"type": "TextRun", "text": text, "size": "Small",
+             **({"color": "Attention", "weight": "Bolder"} if alert else {"isSubtle": True})} for text, alert in parts]
+    return [{"type": "RichTextBlock", "spacing": "None", "inlines": runs}]
+
+
+def _facts(view: CardView) -> dict[str, Any]:
+    """FactSet cannot color values → when a seat count is below the threshold, use rows with red values."""
+    if not view.alert_facts:
+        return {"type": "FactSet", "spacing": "Medium", "separator": True,
+                "facts": [{"title": k, "value": v} for k, v in view.facts]}
+    rows = []
+    for label, value in view.facts:
+        alert = label in view.alert_facts
+        red = {"color": "Attention"} if alert else {}
+        rows.append({"type": "ColumnSet", "spacing": "Small", "columns": [
+            {"type": "Column", "width": "90px", "items": [_text(label, size="Small", weight="Bolder", **red)]},
+            {"type": "Column", "width": "stretch",
+             "items": [_text(value, size="Small", **red, **({"weight": "Bolder"} if alert else {}))]},
+        ]})
+    return {"type": "Container", "spacing": "Medium", "separator": True, "items": rows}
+
+
 def _rows(view: CardView) -> list[dict[str, Any]]:
     blocks = []
     for row in view.rows:
@@ -97,6 +123,7 @@ def _rows(view: CardView) -> list[dict[str, Any]]:
                 {"type": "Column", "width": "stretch", "items": [
                     _text(row.title, weight="Bolder"),
                     _text(row.detail, size="Small", isSubtle=True, spacing="None"),
+                    *_seat_runs(row.seat_parts),
                 ]},
                 {"type": "Column", "width": "auto", "verticalContentAlignment": "Center", "items": [
                     _text(row.price, size="Large", weight="Bolder", color="Accent", horizontalAlignment="Right"),
@@ -115,8 +142,7 @@ def render(view: CardView) -> dict[str, Any]:
         body.append(_text(view.price_label, size="Small", weight="Bolder", isSubtle=True, spacing="Medium"))
         body.extend(_rows(view))
     if view.facts:
-        body.append({"type": "FactSet", "spacing": "Medium", "separator": True,
-                     "facts": [{"title": k, "value": v} for k, v in view.facts]})
+        body.append(_facts(view))
     if view.footer:
         body.append(_text(view.footer, size="Small", isSubtle=True, spacing="Medium"))
 

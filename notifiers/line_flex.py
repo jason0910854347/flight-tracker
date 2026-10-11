@@ -11,7 +11,7 @@ Multiple cards → carousel (max 12 bubbles per message, max 5 messages per API 
 
 from typing import Any
 
-from notifiers.card_view import CardView
+from notifiers.card_view import ALERT_RED, CardView
 
 MAX_BUBBLES_PER_CAROUSEL = 12
 
@@ -92,14 +92,26 @@ def _price(view: CardView) -> dict[str, Any] | None:
 def _facts(view: CardView) -> list[dict[str, Any]]:
     rows = []
     for label, value in view.facts:
+        alert = label in view.alert_facts          # 座位低於門檻 → 紅字
         rows.append({
             "type": "box", "layout": "horizontal", "spacing": "md",
             "contents": [
-                _text(label, size="xs", color=_TEXT_MUTED, flex=3),
-                _text(value, size="xs", color=_TEXT_DARK, flex=7, wrap=True),
+                _text(label, size="xs", color=ALERT_RED if alert else _TEXT_MUTED, flex=3,
+                      weight="bold" if alert else "regular"),
+                _text(value, size="xs", color=ALERT_RED if alert else _TEXT_DARK, flex=7, wrap=True,
+                      weight="bold" if alert else "regular"),
             ],
         })
     return rows
+
+
+def _seat_spans(parts: list[tuple[str, bool]]) -> list[dict[str, Any]]:
+    """💺 座位 去 9+ · 回 3 — only the low leg is red (Flex text spans)."""
+    if not parts:
+        return []
+    spans = [{"type": "span", "text": text, "color": ALERT_RED if alert else _TEXT_MUTED,
+              "weight": "bold" if alert else "regular"} for text, alert in parts]
+    return [{"type": "text", "text": " ", "contents": spans, "size": "xxs", "wrap": True, "margin": "xs"}]
 
 
 def _summary_rows(view: CardView) -> list[dict[str, Any]]:
@@ -114,6 +126,7 @@ def _summary_rows(view: CardView) -> list[dict[str, Any]]:
                 {"type": "box", "layout": "vertical", "flex": 1, "contents": [
                     _text(row.title, size="sm", weight="bold", color=_TEXT_DARK),
                     _text(row.detail, size="xxs", color=_TEXT_MUTED, wrap=True, margin="xs"),
+                    *_seat_spans(row.seat_parts),
                 ]},
                 _text(row.price, size="md", weight="bold", color=view.style.color, flex=0, gravity="center"),
             ],

@@ -230,6 +230,7 @@ class NotifyConfig:
     notify_availability: bool    # 新增班次 / 班次消失 也推送
     notify_on_error: bool        # 爬蟲失敗推送警示
     max_cards: int               # 每輪最多推送幾張價格卡片
+    low_seats: int = 0           # 座位告急門檻：可售座位 < 此數字時推送並紅字標示 (0 = 關閉，最大 9)
 
 
 @dataclass(frozen=True)
@@ -279,6 +280,15 @@ def _load_airlines(env: Mapping[str, str]) -> tuple[AirlineConfig, ...]:
             reference_page=_optional(env, f"{code}_REFERENCE_PAGE", _REFERENCE_DEFAULTS.get(code, "")),
         ))
     return tuple(airlines)
+
+
+def _parse_low_seats(env: Mapping[str, str]) -> int:
+    """NOTIFY_LOW_SEATS — airlines disclose at most 9 seats, so anything above 9 can never be judged."""
+    value = max(0, _optional_int(env, "NOTIFY_LOW_SEATS", 0))
+    if value > 9:
+        print(f"[config] NOTIFY_LOW_SEATS={value} 超過航空公司揭露上限 9，改用 9", file=sys.stderr)
+        value = 9
+    return value
 
 
 def _load_trip(env: Mapping[str, str]) -> TripConfig:
@@ -372,6 +382,7 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             notify_availability=_optional_bool(env, "NOTIFY_AVAILABILITY_CHANGES", True),
             notify_on_error=_optional_bool(env, "NOTIFY_ON_ERROR", True),
             max_cards=max(1, _optional_int(env, "NOTIFY_MAX_CARDS", 10)),
+            low_seats=_parse_low_seats(env),
         ),
         webhook=WebhookConfig(
             enabled=_optional_bool(env, "WEBHOOK_ENABLED"),

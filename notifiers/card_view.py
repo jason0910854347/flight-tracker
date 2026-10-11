@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from config import TripConfig
-from models import DOWN, NEW, REMOVED, UP, FareRecord, PriceChange
+from models import DOWN, LOW_SEATS, NEW, REMOVED, UP, FareRecord, PriceChange, SeatAlert
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,7 @@ THEMES: dict[str, Theme] = {
     REMOVED:   Theme("✕ 班次售完 / 下架", "#5F6368", "#F1F3F4", "emphasis", "Default"),
     "summary": Theme("✈ 機票價格監控", "#1F3A5F", "#EEF2F7", "emphasis", "Accent"),
     "error":   Theme("⚠ 監控異常", "#E37400", "#FEF7E0", "warning", "Warning"),
+    LOW_SEATS: Theme("💺 座位告急", "#C5221F", "#FCE8E6", "attention", "Attention"),
 }
 
 _SOURCE_LABELS = {"starlux": "星宇航空官網", "google_flights": "Google Flights"}
@@ -50,6 +51,7 @@ class SummaryRow:
     detail: str       # 11/12 (四) 07:40 → 10:30
     price: str        # NT$9,848
     color: str = ""   # 品牌色
+    seat_parts: list[tuple[str, bool]] = field(default_factory=list)   # [(文字, 是否紅字)] 💺 座位 去 9+ · 回 3
 
 
 @dataclass
@@ -73,6 +75,7 @@ class CardView:
     button2: str = ""
     footer: str = ""
     accent: str = ""                            # 航空公司品牌色
+    alert_facts: set[str] = field(default_factory=set)   # 這些 facts 的值以紅字標示 (座位低於門檻)
 
     @property
     def style(self) -> Theme:
@@ -146,6 +149,23 @@ def _seat_line(seats: int | None, classes: str) -> str:
     return "｜".join(p for p in (head, classes) if p)
 
 
+ALERT_RED = "#D93025"
+
+
+def is_low(seats: int | None, threshold: int) -> bool:
+    return threshold > 0 and seats is not None and seats < threshold
+
+
+def low_seat_labels(f: FareRecord, threshold: int) -> set[str]:
+    """Fact labels whose seat count is below NOTIFY_LOW_SEATS → rendered red."""
+    labels = set()
+    if is_low(f.seats_left, threshold):
+        labels.add("去程座位")
+    if f.return_flight_no and is_low(f.return_seats_left, threshold):
+        labels.add("回程座位")
+    return labels
+
+
 def seat_facts(f: FareRecord) -> list[tuple[str, str]]:
     """Remaining seats per leg (該時段可售座位)."""
     rows = []
@@ -194,7 +214,7 @@ def _route_symbol(f: FareRecord) -> str:
 
 # ── View Builders ───────────────────────────────────────
 
-def change_view(change: PriceChange, accent: str = "") -> CardView:
+def change_view(change: PriceChange, accent: str = "", low_seats: int = 0) -> CardView:
     f = change.fare
     theme = THEMES[change.kind]
     view = CardView(
@@ -227,11 +247,13 @@ def change_view(change: PriceChange, accent: str = "") -> CardView:
         view.price_new = "—"
         view.facts = fare_facts(f)
         view.button = "到官網確認"
+    view.alert_facts = low_seat_labels(f, low_seats)
     return view
 
 
 def summary_view(fares: list[FareRecord], trip: TripConfig, title: str, note: str,
-                 brand_colors: dict[str, str], url: str = "", show_all: bool = False) -> CardView:
+                 brand_colors: dict[str, str], url: str = "", show_all: bool = False,
+                 low_seats: int = 0) -> CardView:
     """
     Summary card.
         show_all=False — lowest fare per airline (end-of-round summary)
@@ -258,14 +280,21 @@ def summary_view(fares: list[FareRecord], trip: TripConfig, title: str, note: st
             detail = f"去 {f.flight_no}  {f.depart_time}→{f.arrive_time}"
             if f.return_flight_no:
                 detail += f"\n回 {f.return_flight_no}  {f.return_depart_time}→{f.return_arrive_time}"
-            seat_parts = []
+            legs = []
             if f.seats_left is not None:
-                seat_parts.append(f"去 {seats_short(f.seats_left)}" if f.return_flight_no else seats_short(f.seats_left))
+                legs.append((f"去 {seats_short(f.seats_left)}" if f.return_flight_no else seats_short(f.seats_left),
+                             is_low(f.seats_left, low_seats)))
             if f.return_flight_no and f.return_seats_left is not None:
-                seat_parts.append(f"回 {seats_short(f.return_seats_left)}")
-            if seat_parts:
-                detail += "\n💺 座位 " + " · ".join(seat_parts)
+                legs.append((f"回 {seats_short(f.return_seats_left)}", is_low(f.return_seats_left, low_seats)))
+            seat_parts: list[tuple[str, bool]] = []
+            if legs:
+                seat_parts.append(("💺 座位 ", False))
+                for i, part in enumerate(legs):
+                    if i:
+                        seat_parts.append((" · ", False))
+                    seat_parts.append(part)
         else:
+            seat_parts = []
             detail = outbound_text(f)
             if f.return_flight_no:
                 detail += f"\n{return_text(f)}"
@@ -277,6 +306,7 @@ def summary_view(fares: list[FareRecord], trip: TripConfig, title: str, note: st
             detail=detail,
             price=money(f.price_total, f.currency),
             color=brand_colors.get(f.airline, ""),
+            seat_parts=seat_parts,
         ))
     date_text = short_date(trip.depart_date)
     if trip.is_round_trip:
@@ -312,4 +342,33 @@ def error_view(errors: dict[str, str], airline_names: dict[str, str], when: str)
         badge=f"{len(errors)} 項",
         facts=[(f"{airline_names.get(code, code)} {code}", msg[:200]) for code, msg in errors.items()],
         footer=f"發生時間 {when}",
+    )
+
+
+def seat_alert_view(alert: SeatAlert, threshold: int, accent: str = "") -> CardView:
+    """💺 座位告急 — one flight whose cheapest-fare seats fell below NOTIFY_LOW_SEATS."""
+    seat_label = f"{alert.leg}座位"
+    change = f"{seats_short(alert.previous_seats)} → {alert.seats} 位" if alert.previous_seats is not None \
+        else f"{alert.seats} 位（首次偵測）"
+    return CardView(
+        theme=LOW_SEATS,
+        title=THEMES[LOW_SEATS].label,
+        subtitle=f"{alert.airline_name} {alert.airline} · {alert.leg} · {alert.cabin}",
+        badge=f"剩 {alert.seats} 位",
+        route_from=alert.origin,
+        route_to=alert.destination,
+        route_symbol="✈",
+        price_label="含此航班的最低每人含稅價",
+        price_new=money(alert.price_from, alert.currency) if alert.price_from is not None else "—",
+        facts=[
+            (alert.leg, f"{alert.flight_no}  {short_date(alert.depart_date)} {alert.depart_time} → {alert.arrive_time}"),
+            (seat_label, _seat_line(alert.seats, alert.seat_classes)),
+            ("座位變化", change),
+            ("提醒門檻", f"低於 {threshold} 位"),
+            ("最後更新", short_datetime(alert.last_updated)),
+        ],
+        alert_facts={seat_label, "座位變化"},
+        url=alert.booking_url,
+        accent=accent,
+        footer="座位數為最低票價那一級的可售座位；售完後通常會跳到更貴的票價",
     )
