@@ -195,6 +195,9 @@ def _sample_result(cfg: AppConfig) -> RoundResult:
             return_arrive_time=ret_arr if trip.is_round_trip else "",
             price_total=total, price_base=base, taxes=(total - base) if base is not None else None,
             fare_family="Y4TWSEA / Y4TWSEA" if source == "starlux" else "", seats_left=9 if source == "starlux" else None,
+            seat_classes="限量 9+ · 超值 9+ · 基本 9+ · 全額 9+" if source == "starlux" else "",
+            return_seats_left=(4 if source == "starlux" else None) if trip.is_round_trip else None,
+            return_seat_classes="限量 4 · 超值 9+ · 基本 9+ · 全額 9+" if source == "starlux" and trip.is_round_trip else "",
             source=source, booking_url=next(a.booking_url for a in cfg.airlines if a.code == airline)
             if any(a.code == airline for a in cfg.airlines) else "",
             source_url="https://www.google.com/travel/flights" if source == "google_flights" else "",

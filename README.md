@@ -62,6 +62,19 @@ Round
 **為什麼華航不用官網？** 華航訂位引擎（Amadeus DES，`des-portal.china-airlines.com`）使用 Imperva Advanced Bot Protection，自動化瀏覽器會停在「Please stand by」頁面。本專案不實作繞過防爬機制。
 Skyscanner / Google Flights 這類比價平台是透過 GDS（Amadeus、Sabre）、NDC 與 ATPCO 票價資料的商業合作取得報價，而非爬航空公司網站；Google Flights 的價格已驗證與航空公司官網一致（JX713 TPE→SGN 單程 NT$6,217 兩邊相同），因此作為華航的資料來源。限制是只提供含稅總價。
 
+### 剩餘座位
+
+| 航空 | 座位資料 |
+|------|----------|
+| 星宇 JX | ✔ 每個航班、每種票價（限量 / 超值 / 基本 / 全額）的可售座位 |
+| 華航 CI | ✘ Google Flights 不提供座位資料，卡片顯示「資料來源未提供」 |
+
+- 航空公司訂位系統最多只揭露到 **9**：`9+` 表示 9 位以上，低於 9 才是確切數字
+- 漲跌卡：「去程座位 / 回程座位：最低票價 7 位｜基本 7 · 全額 9+」
+- 開始監控卡：每個組合下方「💺 座位 去 9+ · 回 7」
+- 便宜票價（限量、超值）消失或座位變少，通常就是下一次漲價的前兆
+- 座位數只顯示，不參與漲跌判斷
+
 ### 華航官網參考價
 
 華航官方票價頁 `flights.china-airlines.com`（EveryMundo）公開提供「各出發日的最低票價」。程式每輪以一般 HTTP 讀取頁面設定，向官方票價服務 `histogram-distribution` 查詢與監控行程**完全相同日期**的最低價，顯示在卡片的「官網參考價」：
@@ -172,4 +185,4 @@ app.py                        CLI 入口（one-shot / --loop / --dry-run / --tes
 
 - 爬蟲依賴網站目前的結構（星宇 Nuxt store API、Google Flights 內嵌 JSON 欄位位置），網站改版時需調整 parser；失敗時會推送異常卡提醒。
 - 建議檢查間隔 ≥ 30 分鐘，避免對網站造成負擔或觸發限流。
-- Google Flights 價格以 1 位成人計；星宇以 `ADULTS` 人數查詢。
+- **所有價格皆為每人價格**：星宇以 `ADULTS` 人數查詢（確保座位足夠），再換算成每人價；Google Flights 本身即為每人價。

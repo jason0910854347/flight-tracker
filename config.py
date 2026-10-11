@@ -81,6 +81,9 @@ def _log_level(env: Mapping[str, str], key: str, default: str = "INFO") -> str:
 
 # ── Domain Parsers ──────────────────────────────────────
 
+# 所有價格皆為「每位成人」價格 (變更此值會讓舊快照不再比對，自動重建基準)
+PRICE_BASIS = "per-person"
+
 ONE_WAY = "單程"
 ROUND_TRIP = "來回"
 
@@ -196,6 +199,7 @@ class TripConfig:
             self.trip_type, self.origin, self.destination, self.depart_date, self.return_date,
             "-".join(self.depart_time or ()), "-".join(self.return_time or ()),
             str(self.adults), self.cabin, self.currency, str(self.max_stops),
+            PRICE_BASIS,
         ])
 
 

@@ -133,11 +133,39 @@ def reference_text(f: FareRecord) -> str:
     return f"{money(f.official_ref_total, f.currency)}（{note}同日期最低價，非即時）"
 
 
+def seats_short(seats: int | None) -> str:
+    """9 = 航空公司揭露上限 → 9+"""
+    if seats is None:
+        return ""
+    return "9+" if seats >= 9 else str(seats)
+
+
+def _seat_line(seats: int | None, classes: str) -> str:
+    """'最低票價 9+ 位｜限量 9+ · 超值 9+ · 基本 5 · 全額 9+'"""
+    head = f"最低票價 {seats_short(seats)} 位" if seats is not None else ""
+    return "｜".join(p for p in (head, classes) if p)
+
+
+def seat_facts(f: FareRecord) -> list[tuple[str, str]]:
+    """Remaining seats per leg (該時段可售座位)."""
+    rows = []
+    if f.seats_left is not None or f.seat_classes:
+        rows.append(("去程座位", _seat_line(f.seats_left, f.seat_classes)))
+    if f.return_flight_no and (f.return_seats_left is not None or f.return_seat_classes):
+        rows.append(("回程座位", _seat_line(f.return_seats_left, f.return_seat_classes)))
+    if rows:
+        label, value = rows[-1]
+        rows[-1] = (label, value + "（9+ = 9 位以上）")
+    else:
+        rows.append(("剩餘座位", "資料來源未提供"))
+    return rows
+
+
 def fare_facts(f: FareRecord, previous: FareRecord | None = None) -> list[tuple[str, str]]:
     facts = [("去程", outbound_text(f))]
     if f.return_flight_no:
         facts.append(("回程", return_text(f)))
-    facts.append(("含稅總價", money(f.price_total, f.currency)))
+    facts.append(("每人含稅價", money(f.price_total, f.currency)))
     facts.append(("未稅票價", money(f.price_base, f.currency) if f.price_base is not None else "N/A（資料來源未提供）"))
     if f.official_ref_total is not None:
         facts.append(("官網參考價", reference_text(f)))
@@ -148,8 +176,7 @@ def fare_facts(f: FareRecord, previous: FareRecord | None = None) -> list[tuple[
         facts.append(("未稅價差", signed_money(f.price_base - previous.price_base, f.currency)))
     if f.fare_family:
         facts.append(("票價產品", f.fare_family))
-    if f.seats_left is not None:
-        facts.append(("剩餘座位", f"{f.seats_left} 位" + ("（以上）" if f.seats_left >= 9 else "")))
+    facts.extend(seat_facts(f))
     if previous is not None:
         facts.append(("前次更新", short_datetime(previous.last_updated)))
     facts.append(("最後更新", short_datetime(f.last_updated)))
@@ -177,7 +204,7 @@ def change_view(change: PriceChange, accent: str = "") -> CardView:
         route_from=f.origin,
         route_to=f.destination,
         route_symbol=_route_symbol(f),
-        price_label="來回含稅總價" if f.return_flight_no else "單程含稅總價",
+        price_label="每人來回含稅價" if f.return_flight_no else "每人單程含稅價",
         url=f.booking_url,
         url2=f.source_url if f.source_url and f.source_url != f.booking_url else "",
         button2="Google Flights 比價" if f.source == "google_flights" else "比價來源",
@@ -227,9 +254,17 @@ def summary_view(fares: list[FareRecord], trip: TripConfig, title: str, note: st
     for f in selected:
         if show_all:
             # 精簡格式 (日期已在副標題)：去 JX713 14:00→16:50 / 回 JX712 11:40→16:10
+            # 有座位資料時另起一行「💺 座位 去 9+ · 回 7」(最低票價那一級的可售座位)
             detail = f"去 {f.flight_no}  {f.depart_time}→{f.arrive_time}"
             if f.return_flight_no:
                 detail += f"\n回 {f.return_flight_no}  {f.return_depart_time}→{f.return_arrive_time}"
+            seat_parts = []
+            if f.seats_left is not None:
+                seat_parts.append(f"去 {seats_short(f.seats_left)}" if f.return_flight_no else seats_short(f.seats_left))
+            if f.return_flight_no and f.return_seats_left is not None:
+                seat_parts.append(f"回 {seats_short(f.return_seats_left)}")
+            if seat_parts:
+                detail += "\n💺 座位 " + " · ".join(seat_parts)
         else:
             detail = outbound_text(f)
             if f.return_flight_no:
@@ -255,12 +290,12 @@ def summary_view(fares: list[FareRecord], trip: TripConfig, title: str, note: st
     return CardView(
         theme="summary",
         title=title,
-        subtitle=f"{trip.trip_type} · {date_text} · {trip.cabin_label}",
+        subtitle=f"{trip.trip_type} · {date_text} · {trip.cabin_label}" + (f" · {trip.adults} 位成人" if trip.adults > 1 else ""),
         badge=f"{len(fares)} 筆",
         route_from=trip.origin,
         route_to=trip.destination,
         route_symbol="⇄" if trip.is_round_trip else "✈",
-        price_label=f"監控中的{unit} · 每筆各自比較漲跌" if show_all else "各航空最低含稅價",
+        price_label=f"監控中的{unit} · 每人含稅價 · 各自比較漲跌" if show_all else "各航空最低每人含稅價",
         rows=rows,
         url=url,
         button="查看所有航班",

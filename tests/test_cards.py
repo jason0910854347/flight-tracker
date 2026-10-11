@@ -42,7 +42,7 @@ def test_down_card_is_green(fare_factory):
 
 def test_facts_include_base_and_tax(fare_factory):
     facts = dict(change_view(_change(fare_factory)).facts)
-    assert facts["含稅總價"] == "NT$10,248"
+    assert facts["每人含稅價"] == "NT$10,248"
     assert facts["未稅票價"] == "NT$5,344"
     assert facts["稅金附加費"] == "NT$4,904"
     assert "回程" in facts
@@ -154,3 +154,28 @@ def test_change_round_summary_stays_lowest_only(fare_factory, app_config):
     result = RoundResult(fares=fares, changes=[_change(fare_factory)])
     views, _ = build_views(result, app_config)
     assert len(views[-1].rows) == 1
+
+
+def test_seat_facts_per_leg(fare_factory):
+    from notifiers.card_view import seat_facts
+    f = fare_factory(seats_left=9, seat_classes="限量 9+ · 超值 9+", return_seats_left=3, return_seat_classes="限量 3 · 超值 9+")
+    facts = dict(seat_facts(f))
+    assert facts["去程座位"] == "最低票價 9+ 位｜限量 9+ · 超值 9+"
+    assert facts["回程座位"] == "最低票價 3 位｜限量 3 · 超值 9+（9+ = 9 位以上）"
+    assert "去程座位" in dict(change_view(PriceChange(NEW, f, None)).facts)
+
+
+def test_seat_facts_unavailable_source(fare_factory):
+    from notifiers.card_view import seat_facts
+    f = fare_factory(airline="CI", source="google_flights", seats_left=None, seat_classes="")
+    assert seat_facts(f) == [("剩餘座位", "資料來源未提供")]
+
+
+def test_baseline_rows_show_seats(fare_factory, app_config):
+    fares = [fare_factory(seats_left=9, return_seats_left=2),
+             fare_factory(airline="CI", airline_name="中華航空", flight_no="CI783", price_base=None)]
+    views, _ = build_views(RoundResult(fares=fares, is_baseline=True), app_config)
+    jx = next(r for r in views[0].rows if r.title.startswith("星宇"))
+    ci = next(r for r in views[0].rows if r.title.startswith("中華"))
+    assert "💺 座位 去 9+ · 回 2" in jx.detail
+    assert "💺" not in ci.detail

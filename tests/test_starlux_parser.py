@@ -72,3 +72,32 @@ def test_eligible_filters_codeshare_and_time(app_config):
     assert eligible(own, trip, None, "JX")
     assert not eligible(codeshare, trip, None, "JX")
     assert not eligible(own, trip, ("06:00", "10:00"), "JX")
+
+
+def _classed_offer(ff, booking_class, base, quota, sold_out=False):
+    o = _offer(ff, base, 2475, sold_out=sold_out)
+    o["quota"] = quota
+    o["flights"] = [{"id": "SEG-JX713", "bookingClass": booking_class}]
+    return o
+
+
+def test_seat_breakdown_cheapest_first_with_names():
+    from scrapers.starlux_scraper import seat_breakdown, seats_text
+    f = _flight("JX713", "2026-11-12T14:00:00.000+08:00", "2026-11-12T16:50:00.000+07:00", [
+        _classed_offer("Y1TWSEA", "H", 9264, 9),
+        _classed_offer("Y4TWSEA", "Q", 2472, 3),
+        _classed_offer("Y3TWSEA", "N", 2592, 0, sold_out=True),
+        _classed_offer("J3TWSEA", "D", 14784, 9) | {"cabin": "business"},
+    ])
+    names = {"Q": "限量", "N": "超值", "H": "全額"}
+    assert seat_breakdown(f, "eco", names) == "限量 3 · 超值 售完 · 全額 9+"
+    assert seat_breakdown(f, "eco", {}) == "Y4TWSEA 3 · Y3TWSEA 售完 · Y1TWSEA 9+"   # 無名稱時用票價代碼
+    assert seats_text(9) == "9+" and seats_text(12) == "9+" and seats_text(2) == "2" and seats_text(None) == "?"
+
+
+def test_offer_prices_per_person():
+    from scrapers.starlux_scraper import offer_prices, per_person
+    o = _offer("Y4TWSEA", 2472 * 7, 2475 * 7)          # API amounts for 7 travelers
+    assert offer_prices(o, 7) == (2472, 2475, 4947)
+    assert offer_prices(o) == (2472 * 7, 2475 * 7, 4947 * 7)   # default adults=1 keeps raw amounts
+    assert per_person(85232, 7) == 12176

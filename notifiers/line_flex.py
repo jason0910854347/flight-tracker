@@ -66,7 +66,8 @@ def _price(view: CardView) -> dict[str, Any] | None:
             _text(view.price_old, size="sm", color=_TEXT_MUTED, decoration="line-through", flex=0, gravity="bottom"),
             _text("→", size="sm", color=_TEXT_MUTED, flex=0, gravity="bottom", margin="sm"),
         ]
-    line.append(_text(view.price_new, size="xxl", weight="bold", color=theme.color, flex=0,
+    size = "xxl" if len(view.price_new) <= 9 else "xl"   # NT$110,936 等 6 位數總價避免溢出
+    line.append(_text(view.price_new, size=size, weight="bold", color=theme.color, flex=0,
                       gravity="bottom", margin="sm" if view.price_old else "none"))
     contents: list[dict[str, Any]] = [
         _text(view.price_label, size="xs", color=_TEXT_MUTED),

@@ -41,7 +41,11 @@ class FareRecord:
     taxes: int | None = None         # 稅金及附加費
 
     fare_family: str = ""            # 票價產品代碼 (星宇: Y3TWSEA)
-    seats_left: int | None = None    # 剩餘座位 (資料來源提供時)
+    # 剩餘座位 (資料來源提供時；航空公司訂位系統最多只揭露到 9，9 = 9 位以上)
+    seats_left: int | None = None        # 去程：最低票價那一級的可售座位
+    return_seats_left: int | None = None # 回程：最低票價那一級的可售座位
+    seat_classes: str = ""               # 去程該艙等各票價可售座位：限量 9+ · 超值 9+ · 基本 5 · 全額 9+
+    return_seat_classes: str = ""
     source: str = ""                 # 資料來源 (starlux / google_flights)
     booking_url: str = ""            # 航空公司官網訂票頁
     source_url: str = ""             # 比價來源頁 (Google Flights 搜尋結果)

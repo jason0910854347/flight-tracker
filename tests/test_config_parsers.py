@@ -61,3 +61,8 @@ def test_parse_cabin():
 ])
 def test_in_time_window(hhmm, window, expected):
     assert in_time_window(hhmm, window) is expected
+
+
+def test_signature_includes_price_basis(app_config):
+    from config import PRICE_BASIS
+    assert app_config.trip.signature().endswith(PRICE_BASIS)
