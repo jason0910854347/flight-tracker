@@ -9,15 +9,13 @@ and read the site's own JSON (in-page API call / embedded data) instead of parsi
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from config import AirlineConfig, BrowserConfig, TripConfig, config
 from logger import setup_logger
 from models import FareRecord
-
-_TZ = timezone(timedelta(hours=config.timezone_offset))
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -137,7 +135,7 @@ class BaseScraper(ABC):
                 fares = self.scrape(page)
                 self.logger.info(f"{self.tag} {self.source}: {len(fares)} fares ({time.time() - start:.1f}s)")
                 return ScrapeResult(
-                    source=self.source, airline=self.airline.code, scraped_at=datetime.now(_TZ),
+                    source=self.source, airline=self.airline.code, scraped_at=datetime.now(config.tz),
                     success=True, data=fares, duration_sec=time.time() - start,
                 )
             except Exception as e:
@@ -155,7 +153,7 @@ class BaseScraper(ABC):
 
         self.logger.error(f"{self.tag} {self.source}: all attempts failed — {last_error}")
         return ScrapeResult(
-            source=self.source, airline=self.airline.code, scraped_at=datetime.now(_TZ),
+            source=self.source, airline=self.airline.code, scraped_at=datetime.now(config.tz),
             success=False, error=last_error, duration_sec=time.time() - start,
         )
 
@@ -163,7 +161,7 @@ class BaseScraper(ABC):
 
     @staticmethod
     def now_iso() -> str:
-        return datetime.now(_TZ).isoformat(timespec="seconds")
+        return datetime.now(config.tz).isoformat(timespec="seconds")
 
     def new_record(self, **kwargs) -> FareRecord:
         """FareRecord pre-filled with trip / airline fields (kwargs override defaults)."""

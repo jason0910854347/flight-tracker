@@ -19,15 +19,13 @@ import json
 import os
 import shutil
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from config import config
 from logger import setup_logger
 from models import FareRecord, PriceChange
 
 logger = setup_logger("storage")
-
-_TZ = timezone(timedelta(hours=config.timezone_offset))
 
 
 class SnapshotStore:
@@ -50,7 +48,7 @@ class SnapshotStore:
             return raw.get("search_signature", ""), fares
         except Exception as e:
             # 壞檔不阻斷監控：備份後視為無基準
-            backup = f"{self.latest_path}.corrupt-{datetime.now(_TZ):%Y%m%d%H%M%S}"
+            backup = f"{self.latest_path}.corrupt-{datetime.now(config.tz):%Y%m%d%H%M%S}"
             shutil.copy(self.latest_path, backup)
             logger.warning(f"latest.json unreadable ({e}); backed up to {backup}, starting fresh")
             return None
@@ -59,7 +57,7 @@ class SnapshotStore:
         """Atomic write (temp file + replace) so a crash never leaves a half-written snapshot."""
         payload = {
             "search_signature": signature,
-            "updated_at": datetime.now(_TZ).isoformat(timespec="seconds"),
+            "updated_at": datetime.now(config.tz).isoformat(timespec="seconds"),
             "fares": [f.to_dict() for f in sorted(fares, key=_sort_key)],
         }
         fd, tmp_path = tempfile.mkstemp(dir=self.data_dir, suffix=".tmp")
@@ -73,7 +71,7 @@ class SnapshotStore:
     def append_history(self, changes: list[PriceChange]) -> None:
         if not changes:
             return
-        now = datetime.now(_TZ)
+        now = datetime.now(config.tz)
         path = os.path.join(self.history_dir, f"{now:%Y%m%d}.jsonl")
         with open(path, "a", encoding="utf-8") as f:
             for c in changes:
@@ -95,11 +93,11 @@ class SnapshotStore:
         self._cleanup_history()
 
     def _cleanup_history(self) -> None:
-        cutoff = datetime.now(_TZ) - timedelta(days=config.history_retention_days)
+        cutoff = datetime.now(config.tz) - timedelta(days=config.history_retention_days)
         for name in os.listdir(self.history_dir):
             stem = name.split(".")[0]
             try:
-                if datetime.strptime(stem, "%Y%m%d").replace(tzinfo=_TZ) < cutoff:
+                if datetime.strptime(stem, "%Y%m%d").replace(tzinfo=config.tz) < cutoff:
                     os.remove(os.path.join(self.history_dir, name))
             except ValueError:
                 continue

@@ -3,7 +3,7 @@ Notification dispatch — build card views from a monitoring round and send them
 enabled channel (Webhook Adaptive Card / LINE Flex Message).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from config import AppConfig, config
 from logger import setup_logger
@@ -12,8 +12,6 @@ from notifiers.card_view import CardView, change_view, error_view, money, signed
 from notifiers.senders import LineNotifier, WebhookNotifier
 
 logger = setup_logger("notifier")
-
-_TZ = timezone(timedelta(hours=config.timezone_offset))
 
 
 def _alt_text(changes: list[PriceChange], fallback: str) -> str:
@@ -59,7 +57,7 @@ def build_views(result: RoundResult, cfg: AppConfig = config) -> tuple[list[Card
         alt = _alt_text(notable, "✈ 機票價格變動")
 
     if result.errors and rules.notify_on_error:
-        views.append(error_view(result.errors, names, datetime.now(_TZ).strftime("%Y/%m/%d %H:%M")))
+        views.append(error_view(result.errors, names, datetime.now(config.tz).strftime("%Y/%m/%d %H:%M")))
         if not views[:-1]:
             alt = "⚠ 機票價格監控：資料來源抓取失敗"
     return views, alt

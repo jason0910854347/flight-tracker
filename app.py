@@ -19,7 +19,7 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from config import config
 from logger import log_section, rotate_if_needed, setup_logger
@@ -33,8 +33,6 @@ from scrapers.official_fare_reference import OfficialFareReference
 from storage import SnapshotStore
 
 logger = setup_logger("app")
-
-_TZ = timezone(timedelta(hours=config.timezone_offset))
 
 
 # ── One Round ───────────────────────────────────────────
@@ -151,7 +149,7 @@ def run_loop() -> None:
             logger.error(f"Round crashed: {e}", exc_info=True)
         jitter = random.uniform(-config.check_jitter_minutes, config.check_jitter_minutes)
         wait_sec = max(60.0, (interval + jitter) * 60)
-        next_at = datetime.now(_TZ) + timedelta(seconds=wait_sec)
+        next_at = datetime.now(config.tz) + timedelta(seconds=wait_sec)
         logger.info(f"Next round at {next_at:%Y-%m-%d %H:%M:%S}")
         time.sleep(wait_sec)
 
@@ -159,7 +157,7 @@ def run_loop() -> None:
 # ── Samples (test-notify / preview) ─────────────────────
 
 def _sample_result() -> RoundResult:
-    now = datetime.now(_TZ).isoformat(timespec="seconds")
+    now = datetime.now(config.tz).isoformat(timespec="seconds")
     trip = config.trip
 
     def fare(airline: str, name: str, flight: str, dep: str, arr: str, total: int, base: int | None,

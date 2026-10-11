@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from config import config
 
@@ -24,8 +24,6 @@ _logger_init_lock = threading.Lock()
 _FMT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
-_TZ = timezone(timedelta(hours=config.timezone_offset))
-
 _file_handler: logging.FileHandler | None = None
 _file_day: str = ""
 
@@ -34,24 +32,24 @@ class _TzFormatter(logging.Formatter):
     """Formatter that converts log timestamps to the configured timezone."""
 
     def formatTime(self, record, datefmt=None):
-        dt = datetime.fromtimestamp(record.created, tz=_TZ)
+        dt = datetime.fromtimestamp(record.created, tz=config.tz)
         return dt.strftime(datefmt or _DATEFMT)
 
 
 def _today() -> str:
-    return datetime.now(_TZ).strftime("%Y%m%d")
+    return datetime.now(config.tz).strftime("%Y%m%d")
 
 
 def _cleanup_old_logs():
     """Remove log directories older than configured retention days."""
     if not os.path.exists(_LOG_DIR):
         return
-    cutoff = datetime.now(_TZ) - timedelta(days=config.log_retention_days)
+    cutoff = datetime.now(config.tz) - timedelta(days=config.log_retention_days)
     for entry in os.listdir(_LOG_DIR):
         entry_path = os.path.join(_LOG_DIR, entry)
         if os.path.isdir(entry_path) and len(entry) == 8 and entry.isdigit():
             try:
-                dir_date = datetime.strptime(entry, "%Y%m%d").replace(tzinfo=_TZ)
+                dir_date = datetime.strptime(entry, "%Y%m%d").replace(tzinfo=config.tz)
                 if dir_date < cutoff:
                     shutil.rmtree(entry_path)
             except ValueError:

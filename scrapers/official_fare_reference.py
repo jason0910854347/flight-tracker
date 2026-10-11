@@ -22,7 +22,7 @@ rotation on the airline side is picked up automatically.
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import requests
 
@@ -31,7 +31,6 @@ from logger import setup_logger
 
 logger = setup_logger("reference")
 
-_TZ = timezone(timedelta(hours=config.timezone_offset))
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
@@ -75,7 +74,7 @@ def _observed_local(search_date: str) -> str:
         dt = datetime.strptime(search_date, "%Y-%m-%dT%H:%M:%S.%f%z")
     except ValueError:
         return ""
-    return dt.astimezone(_TZ).isoformat(timespec="minutes")
+    return dt.astimezone(config.tz).isoformat(timespec="minutes")
 
 
 def _brand(fare: dict) -> str:
