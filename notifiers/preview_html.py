@@ -68,12 +68,14 @@ function render(node, parentLayout) {
     const el = document.createElement('div'); el.className = 't ' + (node.wrap ? 'wrap' : 'nowrap');
     if (node.contents && node.contents.length) {
       node.contents.forEach(sp => { const s = document.createElement('span'); s.textContent = sp.text;
-        if (sp.color) s.style.color = sp.color; if (sp.weight === 'bold') s.style.fontWeight = '700'; el.appendChild(s); });
+        if (sp.color) s.style.color = sp.color; if (sp.weight === 'bold') s.style.fontWeight = '700';
+        if (sp.decoration === 'line-through') s.style.textDecoration = 'line-through'; el.appendChild(s); });
     } else { el.textContent = node.text; }
     el.style.fontSize = (SIZE[node.size] || 16) + 'px';
     el.style.color = node.color || '#111'; if (node.weight === 'bold') el.style.fontWeight = '700';
     if (node.align) el.style.textAlign = { start: 'left', end: 'right', center: 'center' }[node.align];
     if (node.decoration === 'line-through') el.style.textDecoration = 'line-through';
+    if (node.adjustMode === 'shrink-to-fit') { el.style.whiteSpace = 'nowrap'; requestAnimationFrame(() => { let f = parseFloat(el.style.fontSize); while (el.scrollWidth > el.clientWidth && f > 10) { f -= 1; el.style.fontSize = f + 'px'; } }); }
     applyFlex(el, node, parentLayout); return el;
   }
   if (node.type === 'separator') {

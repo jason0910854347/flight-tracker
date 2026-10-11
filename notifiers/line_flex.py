@@ -60,19 +60,19 @@ def _price(view: CardView) -> dict[str, Any] | None:
     if not view.price_new and not view.price_old:
         return None
     theme = view.style
-    line: list[dict[str, Any]] = []
+    contents: list[dict[str, Any]] = [_text(view.price_label, size="xs", color=_TEXT_MUTED)]
     if view.price_old:
-        line += [
-            _text(view.price_old, size="sm", color=_TEXT_MUTED, decoration="line-through", flex=0, gravity="bottom"),
-            _text("→", size="sm", color=_TEXT_MUTED, flex=0, gravity="bottom", margin="sm"),
-        ]
-    size = "xxl" if len(view.price_new) <= 9 else "xl"   # NT$110,936 等 6 位數總價避免溢出
-    line.append(_text(view.price_new, size=size, weight="bold", color=theme.color, flex=0,
-                      gravity="bottom", margin="sm" if view.price_old else "none"))
-    contents: list[dict[str, Any]] = [
-        _text(view.price_label, size="xs", color=_TEXT_MUTED),
-        {"type": "box", "layout": "horizontal", "contents": line, "margin": "sm", "alignItems": "flex-end"},
-    ]
+        # 原價獨立一行 (手機上與現價同一行會把現價擠到被截斷，例如 NT$16,76)
+        contents.append({
+            "type": "text", "text": " ", "size": "sm", "margin": "sm",
+            "contents": [
+                {"type": "span", "text": "原價 ", "color": _TEXT_MUTED},
+                {"type": "span", "text": view.price_old, "color": _TEXT_MUTED, "decoration": "line-through"},
+            ],
+        })
+    # 現價佔滿整列；shrink-to-fit 讓 LINE 在畫面不夠寬時縮小字體而不是截斷
+    contents.append(_text(view.price_new, size="xxl", weight="bold", color=theme.color,
+                          adjustMode="shrink-to-fit", margin="xs" if view.price_old else "sm"))
     if view.diff_text:
         contents.append({
             "type": "box", "layout": "horizontal", "margin": "sm",

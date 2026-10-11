@@ -179,3 +179,14 @@ def test_baseline_rows_show_seats(fare_factory, app_config):
     ci = next(r for r in views[0].rows if r.title.startswith("中華"))
     assert "".join(t for t, _ in jx.seat_parts) == "💺 座位 去 9+ · 回 2"
     assert "💺" not in ci.detail and ci.seat_parts == []
+
+
+def test_line_price_never_truncated(fare_factory):
+    """Old price on its own line; new price full width with shrink-to-fit (phone showed 'NT$16,76')."""
+    view = change_view(_change(fare_factory, UP, 15848, 16760))
+    price_box = render_bubble(view)["body"]["contents"][1]
+    old_line, new_line = price_box["contents"][1], price_box["contents"][2]
+    assert [sp["text"] for sp in old_line["contents"]] == ["原價 ", "NT$15,848"]
+    assert old_line["contents"][1]["decoration"] == "line-through"
+    assert new_line["text"] == "NT$16,760" and new_line["adjustMode"] == "shrink-to-fit"
+    assert "flex" not in new_line   # takes the whole row
