@@ -22,7 +22,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-from config import config
+from config import AppConfig, ConfigError, load_config
 from logger import configure_logging, log_section, rotate_if_needed
 from models import DOWN, NEW, REMOVED, UP, FareRecord, PriceChange, RoundResult
 from notifiers import build_views, dispatch
@@ -38,20 +38,20 @@ logger = logging.getLogger("app")   # __name__ is "__main__" when run as a scrip
 
 # ── One Round ───────────────────────────────────────────
 
-def scrape_all() -> tuple[list[FareRecord], dict[str, str]]:
+def scrape_all(cfg: AppConfig) -> tuple[list[FareRecord], dict[str, str]]:
     """Run every enabled airline scraper (sequential: Playwright sync API is single-threaded)."""
     fares: list[FareRecord] = []
     errors: dict[str, str] = {}
-    airlines = [a for a in config.airlines if a.enabled]
+    airlines = [a for a in cfg.airlines if a.enabled]
 
-    with BrowserSession(config.browser) as session:
+    with BrowserSession(cfg.browser) as session:
         for airline in airlines:
             scraper_cls = SCRAPERS.get(airline.source)
             if scraper_cls is None:
                 errors[airline.code] = f"未知的資料來源 {airline.source!r} (可用: {', '.join(SCRAPERS)})"
                 logger.error(f"[{airline.code}] {errors[airline.code]}")
                 continue
-            result = scraper_cls(airline, config.trip, session, config.tz, retry=config.browser.retry).run()
+            result = scraper_cls(airline, cfg.trip, session, cfg.tz, retry=cfg.browser.retry).run()
             if result.success:
                 fares.extend(result.data)
                 if not result.data:
@@ -63,7 +63,7 @@ def scrape_all() -> tuple[list[FareRecord], dict[str, str]]:
     for airline in airlines:
         if not airline.reference_page or airline.code in errors:
             continue
-        ref = OfficialFareReference(airline.code, airline.reference_page, config.tz).fetch(config.trip)
+        ref = OfficialFareReference(airline.code, airline.reference_page, cfg.tz).fetch(cfg.trip)
         if ref is None:
             continue
         for fare in fares:
@@ -73,13 +73,13 @@ def scrape_all() -> tuple[list[FareRecord], dict[str, str]]:
     return fares, errors
 
 
-def run_round(dry_run: bool = False) -> RoundResult:
-    trip = config.trip
+def run_round(cfg: AppConfig, dry_run: bool = False) -> RoundResult:
+    trip = cfg.trip
     log_section(logger, f"Round start — {trip.trip_type} {trip.origin}→{trip.destination} "
                         f"{trip.depart_date}{' ~ ' + trip.return_date if trip.is_round_trip else ''}")
 
-    fares, errors = scrape_all()
-    store = SnapshotStore(config.data_dir, config.tz, config.history_retention_days)
+    fares, errors = scrape_all(cfg)
+    store = SnapshotStore(cfg.data_dir, cfg.tz, cfg.history_retention_days)
     snapshot = store.load()
     signature = trip.signature()
 
@@ -92,7 +92,7 @@ def run_round(dry_run: bool = False) -> RoundResult:
         for f in fares:
             f.price_changed_at = f.last_updated
     else:
-        changes, merged = diff_fares(snapshot[1], fares, config.notify, set(errors))
+        changes, merged = diff_fares(snapshot[1], fares, cfg.notify, set(errors))
         result.changes = changes
 
     _log_round(result)
@@ -101,16 +101,16 @@ def run_round(dry_run: bool = False) -> RoundResult:
         logger.info("[dry-run] skip notification & data/ update")
         return result
 
-    if not fares and errors and len(errors) == len([a for a in config.airlines if a.enabled]):
+    if not fares and errors and len(errors) == len([a for a in cfg.airlines if a.enabled]):
         # 全部失敗：不覆寫上一輪資料，只送異常通知
         logger.error("All scrapers failed — keep previous snapshot")
-        views, alt = build_views(RoundResult(errors=errors), config)
-        dispatch(views, alt, config)
+        views, alt = build_views(RoundResult(errors=errors), cfg)
+        dispatch(views, alt, cfg)
         return result
 
-    views, alt = build_views(result, config)
+    views, alt = build_views(result, cfg)
     if views:
-        dispatch(views, alt, config)
+        dispatch(views, alt, cfg)
     store.save(signature, merged)
     store.append_history(result.changes)
     return result
@@ -138,28 +138,28 @@ def _log_round(result: RoundResult) -> None:
 
 # ── Loop ────────────────────────────────────────────────
 
-def run_loop() -> None:
-    interval = config.check_interval_minutes
-    logger.info(f"Loop mode: every {interval} min (± {config.check_jitter_minutes} min jitter). Ctrl+C to stop.")
+def run_loop(cfg: AppConfig) -> None:
+    interval = cfg.check_interval_minutes
+    logger.info(f"Loop mode: every {interval} min (± {cfg.check_jitter_minutes} min jitter). Ctrl+C to stop.")
     while True:
         rotate_if_needed()
         try:
-            run_round()
+            run_round(cfg)
         except Exception as e:
             # 單輪失敗不中斷監控
             logger.error(f"Round crashed: {e}", exc_info=True)
-        jitter = random.uniform(-config.check_jitter_minutes, config.check_jitter_minutes)
+        jitter = random.uniform(-cfg.check_jitter_minutes, cfg.check_jitter_minutes)
         wait_sec = max(60.0, (interval + jitter) * 60)
-        next_at = datetime.now(config.tz) + timedelta(seconds=wait_sec)
+        next_at = datetime.now(cfg.tz) + timedelta(seconds=wait_sec)
         logger.info(f"Next round at {next_at:%Y-%m-%d %H:%M:%S}")
         time.sleep(wait_sec)
 
 
 # ── Samples (test-notify / preview) ─────────────────────
 
-def _sample_result() -> RoundResult:
-    now = datetime.now(config.tz).isoformat(timespec="seconds")
-    trip = config.trip
+def _sample_result(cfg: AppConfig) -> RoundResult:
+    now = datetime.now(cfg.tz).isoformat(timespec="seconds")
+    trip = cfg.trip
 
     def fare(airline: str, name: str, flight: str, dep: str, arr: str, total: int, base: int | None,
              ret_flight: str = "", ret_dep: str = "", ret_arr: str = "", source: str = "starlux") -> FareRecord:
@@ -174,8 +174,8 @@ def _sample_result() -> RoundResult:
             return_arrive_time=ret_arr if trip.is_round_trip else "",
             price_total=total, price_base=base, taxes=(total - base) if base is not None else None,
             fare_family="Y4TWSEA / Y4TWSEA" if source == "starlux" else "", seats_left=9 if source == "starlux" else None,
-            source=source, booking_url=next(a.booking_url for a in config.airlines if a.code == airline)
-            if any(a.code == airline for a in config.airlines) else "",
+            source=source, booking_url=next(a.booking_url for a in cfg.airlines if a.code == airline)
+            if any(a.code == airline for a in cfg.airlines) else "",
             source_url="https://www.google.com/travel/flights" if source == "google_flights" else "",
             last_updated=now,
         )
@@ -191,19 +191,19 @@ def _sample_result() -> RoundResult:
     return RoundResult(fares=[jx_new, ci_new], changes=changes)
 
 
-def test_notify() -> None:
-    views, alt = build_views(_sample_result(), config)
+def test_notify(cfg: AppConfig) -> None:
+    views, alt = build_views(_sample_result(cfg), cfg)
     logger.info(f"Sending {len(views)} sample card(s)…")
-    ok = dispatch(views, "[測試] " + alt, config)
+    ok = dispatch(views, "[測試] " + alt, cfg)
     logger.info("Test notification " + ("sent ✔" if ok else "FAILED ✘ (see log)"))
 
 
-def write_preview() -> None:
+def write_preview(cfg: AppConfig) -> None:
     os.makedirs("preview", exist_ok=True)
-    sample = _sample_result()
-    views, alt = build_views(sample, config)
-    baseline_views, _ = build_views(RoundResult(fares=sample.fares, is_baseline=True), config)
-    error_views, _ = build_views(RoundResult(errors={"CI": "TimeoutError: Google Flights 回應逾時"}), config)
+    sample = _sample_result(cfg)
+    views, alt = build_views(sample, cfg)
+    baseline_views, _ = build_views(RoundResult(fares=sample.fares, is_baseline=True), cfg)
+    error_views, _ = build_views(RoundResult(errors={"CI": "TimeoutError: Google Flights 回應逾時"}), cfg)
     all_views = views + baseline_views + error_views
     cards = [adaptive_card.render(v) for v in all_views]
     messages = line_flex.render_messages(all_views, alt)
@@ -226,22 +226,27 @@ def main() -> int:
     parser.add_argument("--test-notify", action="store_true", help="送出範例卡片測試推送設定")
     parser.add_argument("--preview", action="store_true", help="輸出範例卡片 JSON 到 preview/")
     args = parser.parse_args()
-    configure_logging(config.log_file_level, config.log_retention_days, config.tz)
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print(f"[config] {e}", file=sys.stderr)
+        return 1
+    configure_logging(cfg.log_file_level, cfg.log_retention_days, cfg.tz)
 
     if args.preview:
-        write_preview()
+        write_preview(cfg)
         return 0
     if args.test_notify:
-        test_notify()
+        test_notify(cfg)
         return 0
     if args.loop:
         try:
-            run_loop()
+            run_loop(cfg)
         except KeyboardInterrupt:
             logger.info("Stopped by user")
         return 0
 
-    result = run_round(dry_run=args.dry_run)
+    result = run_round(cfg, dry_run=args.dry_run)
     return 1 if result.errors and not result.fares else 0
 
 

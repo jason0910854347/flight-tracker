@@ -2,7 +2,6 @@
 
 import json
 
-from config import config
 from models import DOWN, NEW, REMOVED, UP, PriceChange, RoundResult
 from notifiers import build_views
 from notifiers.adaptive_card import render as render_ac, wrap_for_teams
@@ -93,21 +92,21 @@ def test_line_texts_never_empty(fare_factory):
     walk(messages)
 
 
-def test_build_views_baseline(fare_factory):
-    views, alt = build_views(RoundResult(fares=[fare_factory()], is_baseline=True), config)
+def test_build_views_baseline(fare_factory, app_config):
+    views, alt = build_views(RoundResult(fares=[fare_factory()], is_baseline=True), app_config)
     assert len(views) == 1 and views[0].theme == "summary"
     assert views[0].rows[0].price == "NT$9,848"
 
 
-def test_build_views_changes_add_summary(fare_factory):
+def test_build_views_changes_add_summary(fare_factory, app_config):
     result = RoundResult(fares=[fare_factory(price_total=10248)], changes=[_change(fare_factory)])
-    views, alt = build_views(result, config)
+    views, alt = build_views(result, app_config)
     assert [v.theme for v in views] == [UP, "summary"]
     assert "JX713" in alt and "▲" in alt
 
 
-def test_build_views_error_only(fare_factory):
-    views, alt = build_views(RoundResult(errors={"CI": "Timeout"}), config)
+def test_build_views_error_only(fare_factory, app_config):
+    views, alt = build_views(RoundResult(errors={"CI": "Timeout"}), app_config)
     assert [v.theme for v in views] == ["error"]
     assert alt.startswith("⚠")
 
@@ -136,13 +135,13 @@ def test_official_source_has_single_button(fare_factory):
     assert len(render_ac(view)["actions"]) == 1
 
 
-def test_baseline_lists_every_itinerary(fare_factory):
+def test_baseline_lists_every_itinerary(fare_factory, app_config):
     fares = [
         fare_factory(flight_no="JX711", depart_time="07:40", price_total=12296),
         fare_factory(flight_no="JX713", depart_time="14:00", price_total=12176),
         fare_factory(airline="CI", airline_name="中華航空", flight_no="CI783", price_total=15886, price_base=None),
     ]
-    views, _ = build_views(RoundResult(fares=fares, is_baseline=True), config)
+    views, _ = build_views(RoundResult(fares=fares, is_baseline=True), app_config)
     rows = views[0].rows
     assert len(rows) == 3
     assert rows[0].title.endswith("★ 最低") and rows[0].price == "NT$12,176"   # JX cheapest first
@@ -150,8 +149,8 @@ def test_baseline_lists_every_itinerary(fare_factory):
     assert rows[2].title.startswith("中華航空") and rows[2].title.endswith("★ 最低")
 
 
-def test_change_round_summary_stays_lowest_only(fare_factory):
+def test_change_round_summary_stays_lowest_only(fare_factory, app_config):
     fares = [fare_factory(flight_no="JX711", depart_time="07:40", price_total=12296), fare_factory(price_total=12176)]
     result = RoundResult(fares=fares, changes=[_change(fare_factory)])
-    views, _ = build_views(result, config)
+    views, _ = build_views(result, app_config)
     assert len(views[-1].rows) == 1

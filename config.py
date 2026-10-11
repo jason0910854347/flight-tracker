@@ -372,12 +372,3 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             timeout_sec=_optional_int(env, "LINE_TIMEOUT_SEC", 30),
         ),
     )
-
-
-# Transitional module-level instance: other modules still import it.
-# Removed once main() builds AppConfig and injects it.
-try:
-    config = load_config()
-except ConfigError as _e:
-    print(f"[config] {_e}", file=sys.stderr)
-    sys.exit(1)

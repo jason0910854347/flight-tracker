@@ -147,7 +147,7 @@ python tools/line_group_id.py --tunnel --write-env
 
 ```
 app.py                        CLI 入口（one-shot / --loop / --dry-run / --test-notify / --preview）
-├── config.py                 Config dataclass（.env 讀取 + 驗證：單程/來回、yyyymmdd、時段）
+├── config.py                 load_config() → AppConfig（.env 讀取 + 驗證：單程/來回、yyyymmdd、時段）
 ├── logger.py                 logs/YYYYMMDD/main.log（loop 模式跨日自動換檔）
 ├── models.py                 FareRecord / PriceChange / RoundResult
 ├── scrapers/

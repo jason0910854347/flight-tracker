@@ -2,7 +2,6 @@
 
 import json
 
-from config import config
 from scrapers.google_flights_scraper import (
     _ampm_pattern, build_url, collect_itineraries, extract_ds_payloads, extract_xhr_payloads,
     flight_no, matches, parse_itinerary,
@@ -66,8 +65,8 @@ def test_extract_xhr_payloads():
     assert [flight_no(i) for i in its] == ["CI783"]
 
 
-def test_matches_operated_by_airline_only():
-    trip = config.trip
+def test_matches_operated_by_airline_only(app_config):
+    trip = app_config.trip
     ci, vn = parse_itinerary(CI783), parse_itinerary(VN571)
     assert matches(ci, "CI", "TPE", "SGN", trip.depart_date, None, 0)
     assert not matches(vn, "CI", "TPE", "SGN", trip.depart_date, None, 0)
@@ -83,6 +82,6 @@ def test_ampm_pattern():
     assert _ampm_pattern("00:05").search("12:05 AM")
 
 
-def test_build_url_round_trip():
-    url = build_url(config.trip)
+def test_build_url_round_trip(app_config):
+    url = build_url(app_config.trip)
     assert "through%202026-11-16" in url and "curr=TWD" in url and "hl=en" in url

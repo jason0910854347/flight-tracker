@@ -2,7 +2,6 @@
 
 from datetime import timedelta, timezone
 
-from config import config
 from models import NEW, PriceChange, RoundResult
 from notifiers import build_views
 from notifiers.card_view import change_view
@@ -32,8 +31,8 @@ def test_parse_page_config():
     assert parse_page_config("<html></html>") is None
 
 
-def test_pick_reference_exact_dates_only():
-    trip = config.trip   # 來回 2026-11-12 → 2026-11-16 (tests/conftest.py)
+def test_pick_reference_exact_dates_only(app_config):
+    trip = app_config.trip   # 來回 2026-11-12 → 2026-11-16 (tests/conftest.py)
     payload = {"histogram": [{"date": "2026-11-12", "fares": [
         _fare("2026-11-12", "2026-11-15", 9000),          # 回程日不同
         _fare("2026-11-12", "2026-11-16", 14382),
@@ -48,14 +47,14 @@ def test_pick_reference_exact_dates_only():
     assert "10/11 05:48 查得" in ref.describe()
 
 
-def test_pick_reference_none():
-    assert pick_reference({"histogram": []}, config.trip, TZ) is None
+def test_pick_reference_none(app_config):
+    assert pick_reference({"histogram": []}, app_config.trip, TZ) is None
 
 
-def test_reference_shown_on_cards(fare_factory):
+def test_reference_shown_on_cards(fare_factory, app_config):
     f = fare_factory(airline="CI", airline_name="中華航空", source="google_flights", price_base=None,
                      official_ref_total=14382, official_ref_note="經濟艙 基本／標準、10/11 05:48 查得")
     facts = dict(change_view(PriceChange(NEW, f, None)).facts)
     assert facts["官網參考價"].startswith("NT$14,382")
-    views, _ = build_views(RoundResult(fares=[f], is_baseline=True), config)
+    views, _ = build_views(RoundResult(fares=[f], is_baseline=True), app_config)
     assert dict(views[0].facts)["中華航空官網參考價"].startswith("NT$14,382")

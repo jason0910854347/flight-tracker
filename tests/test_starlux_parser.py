@@ -1,6 +1,5 @@
 """Unit tests for STARLUX API response parsing (no browser)."""
 
-from config import config
 from scrapers.starlux_scraper import build_payload, cheapest_offer, eligible, flight_summary, go_information, offer_prices
 
 
@@ -29,16 +28,16 @@ def _offer(ff: str, base: int, tax: int, cabin: str = "eco", sold_out: bool = Fa
     }
 
 
-def test_build_payload_round_trip():
-    payload = build_payload(config.trip)
+def test_build_payload_round_trip(app_config):
+    payload = build_payload(app_config.trip)
     assert payload["trip"] == "round-trip"
     assert payload["itineraries"][1] == {"departure": "SGN", "arrival": "TPE", "departureDate": "2026-11-16"}
     assert payload["cabin"] == "eco"
     assert "goInformation" not in payload
 
 
-def test_build_payload_with_go_information():
-    payload = build_payload(config.trip, {"airOfferId": "X"})
+def test_build_payload_with_go_information(app_config):
+    payload = build_payload(app_config.trip, {"airOfferId": "X"})
     assert payload["goInformation"] == {"airOfferId": "X"}
 
 
@@ -66,8 +65,8 @@ def test_go_information():
     assert info == {"flightIds": ["SEG-JX713"], "fareFamilyCode": "Y4TWSEA", "airOfferId": "OFFER-Y4TWSEA"}
 
 
-def test_eligible_filters_codeshare_and_time():
-    trip = config.trip
+def test_eligible_filters_codeshare_and_time(app_config):
+    trip = app_config.trip
     own = flight_summary(_flight("JX713", "2026-11-12T14:00:00.000+08:00", "2026-11-12T16:50:00.000+07:00", []))
     codeshare = flight_summary(_flight("JX5001", "2026-11-12T09:00:00.000+08:00", "2026-11-12T11:50:00.000+07:00", [], operating="AA"))
     assert eligible(own, trip, None, "JX")
