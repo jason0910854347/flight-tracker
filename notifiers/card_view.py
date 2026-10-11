@@ -286,7 +286,7 @@ def summary_view(fares: list[FareRecord], trip: TripConfig, title: str, note: st
     for code in sorted({f.airline for f in fares}):
         ref = next((f for f in fares if f.airline == code and f.official_ref_total is not None), None)
         if ref:
-            ref_facts.append((f"{ref.airline_name}官網參考價", reference_text(ref)))
+            ref_facts.append(("官網參考價", f"{ref.airline_name} {reference_text(ref)}"))
     return CardView(
         theme="summary",
         title=title,

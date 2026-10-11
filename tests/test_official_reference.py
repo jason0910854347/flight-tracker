@@ -57,4 +57,4 @@ def test_reference_shown_on_cards(fare_factory, app_config):
     facts = dict(change_view(PriceChange(NEW, f, None)).facts)
     assert facts["官網參考價"].startswith("NT$14,382")
     views, _ = build_views(RoundResult(fares=[f], is_baseline=True), app_config)
-    assert dict(views[0].facts)["中華航空官網參考價"].startswith("NT$14,382")
+    assert dict(views[0].facts)["官網參考價"].startswith("中華航空 NT$14,382")
