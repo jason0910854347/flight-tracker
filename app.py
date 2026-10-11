@@ -15,6 +15,7 @@ Monitoring targets are controlled via .env:
 
 import argparse
 import json
+import logging
 import os
 import random
 import sys
@@ -22,7 +23,7 @@ import time
 from datetime import datetime, timedelta
 
 from config import config
-from logger import log_section, rotate_if_needed, setup_logger
+from logger import configure_logging, log_section, rotate_if_needed
 from models import DOWN, NEW, REMOVED, UP, FareRecord, PriceChange, RoundResult
 from notifiers import build_views, dispatch
 from notifiers import adaptive_card, line_flex
@@ -32,7 +33,7 @@ from scrapers import SCRAPERS, BrowserSession
 from scrapers.official_fare_reference import OfficialFareReference
 from storage import SnapshotStore
 
-logger = setup_logger("app")
+logger = logging.getLogger("app")   # __name__ is "__main__" when run as a script
 
 
 # ── One Round ───────────────────────────────────────────
@@ -225,6 +226,7 @@ def main() -> int:
     parser.add_argument("--test-notify", action="store_true", help="送出範例卡片測試推送設定")
     parser.add_argument("--preview", action="store_true", help="輸出範例卡片 JSON 到 preview/")
     args = parser.parse_args()
+    configure_logging(config.log_file_level, config.log_retention_days, config.tz)
 
     if args.preview:
         write_preview()

@@ -3,15 +3,15 @@ Notification dispatch — build card views from a monitoring round and send them
 enabled channel (Webhook Adaptive Card / LINE Flex Message).
 """
 
+import logging
 from datetime import datetime
 
 from config import AppConfig, config
-from logger import setup_logger
 from models import DOWN, NEW, REMOVED, UP, PriceChange, RoundResult
 from notifiers.card_view import CardView, change_view, error_view, money, signed_money, summary_view
 from notifiers.senders import LineNotifier, WebhookNotifier
 
-logger = setup_logger("notifier")
+logger = logging.getLogger(__name__)
 
 
 def _alt_text(changes: list[PriceChange], fallback: str) -> str:

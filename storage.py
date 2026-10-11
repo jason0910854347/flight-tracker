@@ -16,16 +16,16 @@ latest.json schema:
 """
 
 import json
+import logging
 import os
 import shutil
 import tempfile
 from datetime import datetime, timedelta
 
 from config import config
-from logger import setup_logger
 from models import FareRecord, PriceChange
 
-logger = setup_logger("storage")
+logger = logging.getLogger(__name__)
 
 
 class SnapshotStore:

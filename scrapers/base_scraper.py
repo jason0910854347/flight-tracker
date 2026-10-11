@@ -6,6 +6,7 @@ Airline booking engines are SPA + bot-protected, so scrapers drive a real browse
 and read the site's own JSON (in-page API call / embedded data) instead of parsing rendered HTML.
 """
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -14,7 +15,6 @@ from datetime import datetime
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from config import AirlineConfig, BrowserConfig, TripConfig, config
-from logger import setup_logger
 from models import FareRecord
 
 _USER_AGENT = (
@@ -46,7 +46,7 @@ class BrowserSession:
 
     def __init__(self, browser_cfg: BrowserConfig):
         self.cfg = browser_cfg
-        self.logger = setup_logger("browser")
+        self.logger = logging.getLogger(__name__)
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._contexts: list[BrowserContext] = []
@@ -113,7 +113,7 @@ class BaseScraper(ABC):
         self.trip = trip
         self.session = session
         self.retry = retry
-        self.logger = setup_logger(f"scraper.{self.source}.{airline.code}")
+        self.logger = logging.getLogger(f"scraper.{self.source}.{airline.code}")
 
     @property
     def tag(self) -> str:

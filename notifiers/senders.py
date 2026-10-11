@@ -8,16 +8,16 @@ Notification senders.
                       (LINE Notify 已於 2025-03-31 停止服務)
 """
 
+import logging
 import time
 
 import requests
 
 from config import LineConfig, WebhookConfig
-from logger import setup_logger
 from notifiers import adaptive_card, line_flex
 from notifiers.card_view import CardView
 
-logger = setup_logger("notifier")
+logger = logging.getLogger(__name__)
 
 _LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 _LINE_BROADCAST_URL = "https://api.line.me/v2/bot/message/broadcast"

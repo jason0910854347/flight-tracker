@@ -19,6 +19,7 @@ No browser needed: the endpoint and key are read from the page config each run, 
 rotation on the airline side is picked up automatically.
 """
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -27,9 +28,8 @@ from datetime import datetime
 import requests
 
 from config import TripConfig, config
-from logger import setup_logger
 
-logger = setup_logger("reference")
+logger = logging.getLogger(__name__)
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
