@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── flight-tracker ──────────────────────────────
+.env
+logs/
+preview/
+data/*
+!data/.gitkeep

@@ -1,0 +1,5 @@
+# Flight Fare Monitor — Dependencies
+playwright==1.62.0          # Browser automation (airline SPA / Google Flights)
+python-dotenv==1.2.2        # .env configuration loader
+requests==2.32.5            # Webhook / LINE Messaging API
+pytest==8.4.0               # Unit testing
