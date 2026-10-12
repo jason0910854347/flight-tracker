@@ -111,6 +111,7 @@ class RoundResult:
     errors: dict[str, str] = field(default_factory=dict)   # airline code → error message
     is_baseline: bool = False                               # 無上一輪資料 (或搜尋條件已變更)
     seat_alerts: list["SeatAlert"] = field(default_factory=list)
+    recovered: list[str] = field(default_factory=list)      # 由抓取失敗恢復的航空代號 (系統通知)
 
 
 @dataclass

@@ -85,3 +85,16 @@ def test_ampm_pattern():
 def test_build_url_round_trip(app_config):
     url = build_url(app_config.trip)
     assert "through%202026-11-16" in url and "curr=TWD" in url and "hl=en" in url
+
+
+def test_is_blocked():
+    from scrapers.google_flights_scraper import is_blocked
+    assert is_blocked("https://www.google.com/travel/flights?q=x", "<div>Oops, something went wrong.</div>")
+    assert is_blocked("https://www.google.com/sorry/index?continue=x", "")
+    assert not is_blocked("https://www.google.com/travel/flights?q=x", "<div>Top departing flights</div>")
+
+
+def test_min_interval_defaults(app_config):
+    by_code = {a.code: a for a in app_config.airlines}
+    assert by_code["CI"].min_interval_minutes == 60   # google_flights
+    assert by_code["JX"].min_interval_minutes == 0    # official API

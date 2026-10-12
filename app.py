@@ -20,6 +20,7 @@ import os
 import random
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from config import AppConfig, ConfigError, load_config
@@ -31,6 +32,7 @@ from notifiers.preview_html import build_preview_html
 from price_diff import diff_fares, seat_alerts
 from scrapers import SCRAPERS, BrowserSession
 from scrapers.official_fare_reference import OfficialFareReference
+from source_state import SourceStateStore
 from storage import SnapshotStore
 
 logger = logging.getLogger("app")   # __name__ is "__main__" when run as a script
@@ -38,39 +40,76 @@ logger = logging.getLogger("app")   # __name__ is "__main__" when run as a scrip
 
 # ── One Round ───────────────────────────────────────────
 
-def scrape_all(cfg: AppConfig) -> tuple[list[FareRecord], dict[str, str]]:
-    """Run every enabled airline scraper (sequential: Playwright sync API is single-threaded)."""
-    fares: list[FareRecord] = []
-    errors: dict[str, str] = {}
+@dataclass
+class ScrapeOutcome:
+    fares: list[FareRecord] = field(default_factory=list)
+    errors: dict[str, str] = field(default_factory=dict)      # 本輪抓取失敗
+    skipped: dict[str, str] = field(default_factory=dict)     # 本輪不查 (查詢間隔 / 失敗冷卻)
+    new_errors: dict[str, str] = field(default_factory=dict)  # 需要通知管理者的失敗 (一段連續失敗只通知一次)
+    recovered: list[str] = field(default_factory=list)        # 由失敗恢復的航空
+
+    @property
+    def stale(self) -> set[str]:
+        """Airlines without fresh data this round → previous fares are carried over."""
+        return set(self.errors) | set(self.skipped)
+
+
+def scrape_all(cfg: AppConfig, state: SourceStateStore | None = None) -> ScrapeOutcome:
+    """
+    Run every enabled airline scraper (sequential: Playwright sync API is single-threaded).
+    With `state`, sources respect {CODE}_MIN_INTERVAL_MINUTES and back off after failures.
+    """
+    out = ScrapeOutcome()
     airlines = [a for a in cfg.airlines if a.enabled]
 
-    with BrowserSession(cfg.browser) as session:
-        for airline in airlines:
-            scraper_cls = SCRAPERS.get(airline.source)
-            if scraper_cls is None:
-                errors[airline.code] = f"未知的資料來源 {airline.source!r} (可用: {', '.join(SCRAPERS)})"
-                logger.error(f"[{airline.code}] {errors[airline.code]}")
-                continue
-            result = scraper_cls(airline, cfg.trip, session, cfg.tz, retry=cfg.browser.retry).run()
-            if result.success:
-                fares.extend(result.data)
-                if not result.data:
-                    logger.warning(f"[{airline.code}] 0 fares — 該日期/條件可能無航班或已售完")
-            else:
-                errors[airline.code] = result.error or "unknown error"
+    to_run = []
+    for airline in airlines:
+        reason = state.skip_reason(airline.code, airline.min_interval_minutes) if state else None
+        if reason:
+            out.skipped[airline.code] = reason
+            logger.info(f"[{airline.code}] 本輪略過：{reason}（沿用上一輪資料）")
+        else:
+            to_run.append(airline)
+
+    if to_run:
+        with BrowserSession(cfg.browser) as session:
+            for airline in to_run:
+                scraper_cls = SCRAPERS.get(airline.source)
+                if scraper_cls is None:
+                    out.errors[airline.code] = f"未知的資料來源 {airline.source!r} (可用: {', '.join(SCRAPERS)})"
+                    out.new_errors[airline.code] = out.errors[airline.code]
+                    logger.error(f"[{airline.code}] {out.errors[airline.code]}")
+                    continue
+                if state:
+                    state.record_attempt(airline.code)
+                result = scraper_cls(airline, cfg.trip, session, cfg.tz, retry=cfg.browser.retry).run()
+                if result.success:
+                    out.fares.extend(result.data)
+                    if state and state.record_success(airline.code):
+                        out.recovered.append(airline.code)
+                    if not result.data:
+                        logger.warning(f"[{airline.code}] 0 fares — 該日期/條件可能無航班或已售完")
+                else:
+                    error = result.error or "unknown error"
+                    out.errors[airline.code] = error
+                    if state is None or state.record_failure(airline.code, error):
+                        out.new_errors[airline.code] = error
+                    if state:
+                        status = state.get(airline.code)
+                        logger.warning(f"[{airline.code}] 失敗 {status.failures} 次，冷卻至 {status.cooldown_until[11:16]}")
 
     # 官網參考價 (例如華航官網票價頁)：附加到該航空每一筆資料，失敗不影響本輪
-    for airline in airlines:
-        if not airline.reference_page or airline.code in errors:
+    for airline in to_run:
+        if not airline.reference_page or airline.code in out.errors:
             continue
         ref = OfficialFareReference(airline.code, airline.reference_page, cfg.tz).fetch(cfg.trip)
         if ref is None:
             continue
-        for fare in fares:
+        for fare in out.fares:
             if fare.airline == airline.code:
                 fare.official_ref_total = ref.total
                 fare.official_ref_note = ref.describe()
-    return fares, errors
+    return out
 
 
 def run_round(cfg: AppConfig, dry_run: bool = False) -> RoundResult:
@@ -78,12 +117,14 @@ def run_round(cfg: AppConfig, dry_run: bool = False) -> RoundResult:
     log_section(logger, f"Round start — {trip.trip_type} {trip.origin}→{trip.destination} "
                         f"{trip.depart_date}{' ~ ' + trip.return_date if trip.is_round_trip else ''}")
 
-    fares, errors = scrape_all(cfg)
+    state = SourceStateStore(cfg.data_dir, cfg.tz)
+    outcome = scrape_all(cfg, state)
+    fares = outcome.fares
     store = SnapshotStore(cfg.data_dir, cfg.tz, cfg.history_retention_days)
     snapshot = store.load()
     signature = trip.signature()
 
-    result = RoundResult(fares=fares, errors=errors)
+    result = RoundResult(fares=fares, errors=outcome.new_errors, recovered=outcome.recovered)
     comparable = snapshot is not None and snapshot[0] == signature
     result.seat_alerts = seat_alerts(snapshot[1] if comparable else None, fares, cfg.notify.low_seats)
     if not comparable:
@@ -94,19 +135,22 @@ def run_round(cfg: AppConfig, dry_run: bool = False) -> RoundResult:
         for f in fares:
             f.price_changed_at = f.last_updated
     else:
-        changes, merged = diff_fares(snapshot[1], fares, cfg.notify, set(errors))
+        changes, merged = diff_fares(snapshot[1], fares, cfg.notify, outcome.stale)
         result.changes = changes
+        result.fares = merged   # 摘要卡含沿用的航空 (例如華航冷卻中)
 
     _log_round(result)
 
     if dry_run:
-        logger.info("[dry-run] skip notification & data/ update")
+        logger.info("[dry-run] skip notification & data/ + source_state update")
         return result
+    state.save()
 
-    if not fares and errors and len(errors) == len([a for a in cfg.airlines if a.enabled]):
-        # 全部失敗：不覆寫上一輪資料，只送異常通知
-        logger.error("All scrapers failed — keep previous snapshot")
-        views, alt = build_views(RoundResult(errors=errors), cfg)
+    enabled = {a.code for a in cfg.airlines if a.enabled}
+    if not fares and enabled <= outcome.stale:
+        # 全部失敗 / 略過：不覆寫上一輪資料；異常只通知管理者
+        logger.error("No fresh data from any airline — keep previous snapshot")
+        views, alt = build_views(RoundResult(errors=outcome.new_errors, recovered=outcome.recovered), cfg)
         dispatch(views, alt, cfg)
         return result
 

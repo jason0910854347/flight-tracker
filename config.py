@@ -212,6 +212,7 @@ class AirlineConfig:
     color: str         # 卡片品牌色 (hex)
     booking_url: str   # 官網訂票頁 (卡片主按鈕)
     reference_page: str  # 官網票價頁 (EveryMundo) → 「官網參考價」；空白 = 不查
+    min_interval_minutes: int = 0  # 此資料來源最短查詢間隔 (Google Flights 預設 60，避免被限流)
 
 
 @dataclass(frozen=True)
@@ -248,6 +249,7 @@ class LineConfig:
     channel_access_token: str
     to: str                      # userId / groupId，空白 = broadcast 給所有好友
     timeout_sec: int
+    admin_to: str = ""           # 系統通知 (抓取失敗 / 恢復) 只推給這個 userId；空白 = 不推 LINE，只寫 log
 
 
 # ── Main Config ─────────────────────────────────────────
@@ -278,6 +280,9 @@ def _load_airlines(env: Mapping[str, str]) -> tuple[AirlineConfig, ...]:
             color=_optional(env, f"{code}_COLOR", default_color),
             booking_url=_optional(env, f"{code}_BOOKING_URL", default_url),
             reference_page=_optional(env, f"{code}_REFERENCE_PAGE", _REFERENCE_DEFAULTS.get(code, "")),
+            min_interval_minutes=max(0, _optional_int(
+                env, f"{code}_MIN_INTERVAL_MINUTES",
+                60 if _optional(env, f"{code}_SOURCE", default_source).lower() == "google_flights" else 0)),
         ))
     return tuple(airlines)
 
@@ -396,5 +401,6 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
             channel_access_token=_optional(env, "LINE_CHANNEL_ACCESS_TOKEN"),
             to=_optional(env, "LINE_TO"),
             timeout_sec=_optional_int(env, "LINE_TIMEOUT_SEC", 30),
+            admin_to=_optional(env, "LINE_ADMIN_TO"),
         ),
     )

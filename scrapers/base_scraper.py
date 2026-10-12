@@ -23,6 +23,10 @@ _USER_AGENT = (
 )
 
 
+class SourceUnavailable(RuntimeError):
+    """The site is refusing us (throttled / blocked). Retrying immediately makes it worse → no retry."""
+
+
 @dataclass
 class ScrapeResult:
     """Standardized result container for all scrapers."""
@@ -140,6 +144,10 @@ class BaseScraper(ABC):
                     source=self.source, airline=self.airline.code, scraped_at=datetime.now(self.tz),
                     success=True, data=fares, duration_sec=time.time() - start,
                 )
+            except SourceUnavailable as e:
+                last_error = f"{type(e).__name__}: {e}"
+                self.logger.warning(f"{self.tag} {last_error} — 不重試，進入冷卻")
+                break
             except Exception as e:
                 last_error = f"{type(e).__name__}: {e}"
                 self.logger.warning(f"{self.tag} attempt {attempt}/{self.retry + 1} failed: {last_error}")

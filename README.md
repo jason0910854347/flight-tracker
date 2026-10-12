@@ -82,6 +82,18 @@ Skyscanner / Google Flights 這類比價平台是透過 GDS（Amadeus、Sabre）
 - 只在「首次跌破門檻」或「比上一輪再減少」時通知，座位不變或回升不重複推送
 - `0` / 空白 = 關閉；航空公司最多揭露到 9 位，所以超過 9 會自動改為 9 (目前僅星宇有座位資料)
 
+### 防限流與系統通知
+
+- **Google Flights 會限流**：同一台電腦查太頻繁時，所有搜尋都回「Oops, something went wrong」。
+  - `CI_MIN_INTERVAL_MINUTES=60`：Google Flights 每 60 分鐘最多查一次（星宇官網不受影響）
+  - 偵測到被限流立即停止，不重試；之後自動冷卻 30 分 → 1 時 → 2 時 → 4 時 → 6 時（上限）
+  - 冷卻 / 略過期間沿用上一輪華航資料，不會誤報「下架」
+  - 狀態存於 `data/source_state.json`
+- **錯誤不推給 LINE 用戶**：「⚠ 監控異常」「✔ 資料來源已恢復」屬系統通知
+  - 絕不送到 `LINE_TO` 群組，也不 broadcast
+  - 只送到 `LINE_ADMIN_TO`（管理者 userId）與 Webhook；都沒設定時只寫入 log
+  - 同一段連續失敗只通知一次，恢復時再通知一次
+
 ### 華航官網參考價
 
 華航官方票價頁 `flights.china-airlines.com`（EveryMundo）公開提供「各出發日的最低票價」。程式每輪以一般 HTTP 讀取頁面設定，向官方票價服務 `histogram-distribution` 查詢與監控行程**完全相同日期**的最低價，顯示在卡片的「官網參考價」：

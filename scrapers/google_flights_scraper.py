@@ -31,7 +31,7 @@ from playwright.sync_api import Page
 
 from config import TripConfig
 from models import FareRecord, in_time_window
-from scrapers.base_scraper import BaseScraper
+from scrapers.base_scraper import BaseScraper, SourceUnavailable
 
 _BASE_URL = "https://www.google.com/travel/flights"
 _CABIN_QUERY = {"economy": "", "premium": " premium economy", "business": " business class", "first": " first class"}
@@ -174,6 +174,14 @@ def matches(it: dict, airline_code: str, origin: str, destination: str, date: st
     )
 
 
+_BLOCK_MARKERS = ("Oops, something went wrong", "unusual traffic", "Our systems have detected")
+
+
+def is_blocked(url: str, html: str) -> bool:
+    """Google's throttling pages: 'Oops, something went wrong' results page, or /sorry/ captcha page."""
+    return "/sorry/" in url or any(m in html for m in _BLOCK_MARKERS)
+
+
 def _ampm_pattern(hhmm: str) -> re.Pattern:
     """
     '13:35' → regex matching '1:35 PM'.
@@ -221,9 +229,12 @@ class GoogleFlightsScraper(BaseScraper):
         page.goto(url, wait_until="domcontentloaded")
         self._dismiss_consent(page)
         for _ in range(10):
-            itineraries = collect_itineraries(extract_ds_payloads(page.content()))
+            html = page.content()
+            itineraries = collect_itineraries(extract_ds_payloads(html))
             if itineraries:
                 return itineraries
+            if is_blocked(page.url, html):
+                raise SourceUnavailable("Google Flights 暫時限制此電腦查詢 (Oops, something went wrong)")
             time.sleep(2)
         raise RuntimeError("Google Flights: no itineraries found in page (layout changed or blocked?)")
 
@@ -233,11 +244,16 @@ class GoogleFlightsScraper(BaseScraper):
         Google occasionally answers with an ErrorResponse (~1 in 8) → reload & click again.
         """
         last_reason = ""
+        error_responses = 0
         for attempt in range(1, attempts + 1):
             returns, last_reason = self._click_and_collect_returns(page, url, go)
             if returns:
                 return returns
+            error_responses += last_reason == "Google returned ErrorResponse"
             self.logger.debug(f"{self.tag} {flight_no(go)} returns attempt {attempt}/{attempts}: {last_reason}")
+        if error_responses == attempts:
+            # 每次都被拒絕 = 被限流，而不是偶發錯誤
+            raise SourceUnavailable(f"Google Flights 連續拒絕回程查詢 ({flight_no(go)})")
         raise RuntimeError(f"Google Flights: return flights for {flight_no(go)} not loaded ({last_reason})")
 
     def _click_and_collect_returns(self, page: Page, url: str, go: dict, wait_sec: int = 20) -> tuple[list[dict], str]:
@@ -260,7 +276,7 @@ class GoogleFlightsScraper(BaseScraper):
 
         page.on("response", _on_response)
         try:
-            row.click()
+            row.click(timeout=15000)
             seen = 0
             deadline = time.time() + wait_sec
             while time.time() < deadline:

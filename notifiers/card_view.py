@@ -38,6 +38,7 @@ THEMES: dict[str, Theme] = {
     "summary": Theme("✈ 機票價格監控", "#1F3A5F", "#EEF2F7", "emphasis", "Accent"),
     "error":   Theme("⚠ 監控異常", "#E37400", "#FEF7E0", "warning", "Warning"),
     LOW_SEATS: Theme("💺 座位告急", "#C5221F", "#FCE8E6", "attention", "Attention"),
+    "recovered": Theme("✔ 資料來源已恢復", "#188038", "#E6F4EA", "good", "Good"),
 }
 
 _SOURCE_LABELS = {"starlux": "星宇航空官網", "google_flights": "Google Flights"}
@@ -338,7 +339,7 @@ def error_view(errors: dict[str, str], airline_names: dict[str, str], when: str)
     return CardView(
         theme="error",
         title=THEMES["error"].label,
-        subtitle="以下資料來源本輪抓取失敗，已沿用上一輪資料",
+        subtitle="以下資料來源抓取失敗，已沿用上一輪資料，並自動暫停查詢後再試",
         badge=f"{len(errors)} 項",
         facts=[(f"{airline_names.get(code, code)} {code}", msg[:200]) for code, msg in errors.items()],
         footer=f"發生時間 {when}",
@@ -371,4 +372,15 @@ def seat_alert_view(alert: SeatAlert, threshold: int, accent: str = "") -> CardV
         url=alert.booking_url,
         accent=accent,
         footer="座位數為最低票價那一級的可售座位；售完後通常會跳到更貴的票價",
+    )
+
+
+def recovered_view(codes: list[str], airline_names: dict[str, str], when: str) -> CardView:
+    """System card (admin only): sources that work again after a notified failure."""
+    return CardView(
+        theme="recovered",
+        title=THEMES["recovered"].label,
+        subtitle="以下資料來源已重新取得資料，恢復正常監控",
+        facts=[(f"{airline_names.get(code, code)} {code}", "恢復正常") for code in codes],
+        footer=f"恢復時間 {when}",
     )

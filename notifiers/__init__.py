@@ -8,7 +8,7 @@ from datetime import datetime
 
 from config import AppConfig
 from models import DOWN, NEW, REMOVED, UP, PriceChange, RoundResult
-from notifiers.card_view import CardView, change_view, error_view, money, seat_alert_view, signed_money, summary_view
+from notifiers.card_view import CardView, change_view, error_view, money, recovered_view, seat_alert_view, signed_money, summary_view
 from notifiers.senders import LineNotifier, WebhookNotifier
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,9 @@ def build_views(result: RoundResult, cfg: AppConfig) -> tuple[list[CardView], st
         # 有價格變動 → 兩者並列；否則 (基準輪 / 只有座位告急) 以座位告急為推播預覽
         alt = f"{alt}｜{seats_alt}" if notable else seats_alt
 
+    if result.recovered and rules.notify_on_error:
+        views.append(recovered_view(result.recovered, names, datetime.now(cfg.tz).strftime("%Y/%m/%d %H:%M")))
+
     if result.errors and rules.notify_on_error:
         views.append(error_view(result.errors, names, datetime.now(cfg.tz).strftime("%Y/%m/%d %H:%M")))
         if not views[:-1]:
@@ -85,12 +88,41 @@ def get_notifiers(cfg: AppConfig) -> list[WebhookNotifier | LineNotifier]:
     return notifiers
 
 
+# 系統通知 (抓取失敗 / 恢復)：絕不推到 LINE 用戶群組，只給管理者
+SYSTEM_THEMES = {"error", "recovered"}
+
+
 def dispatch(views: list[CardView], alt_text: str, cfg: AppConfig) -> bool:
+    """
+    User cards  (漲跌 / 座位 / 摘要)  → Webhook + LINE_TO (group / broadcast)
+    System cards (⚠ 異常 / ✔ 恢復)   → Webhook + LINE_ADMIN_TO only; never the LINE group.
+                                       Without an admin channel they are only logged.
+    """
     if not views:
         return True
+    user_views = [v for v in views if v.theme not in SYSTEM_THEMES]
+    system_views = [v for v in views if v.theme in SYSTEM_THEMES]
     notifiers = get_notifiers(cfg)
     if not notifiers:
         logger.warning("No notification channel configured (WEBHOOK_* / LINE_*) — cards not sent")
         return False
-    results = [n.send(views, alt_text) for n in notifiers]
+
+    results = []
+    if user_views:
+        results += [n.send(user_views, alt_text) for n in notifiers]
+    if system_views:
+        system_alt = "⚠ 機票監控系統通知（僅管理者）"
+        delivered = False
+        for n in notifiers:
+            if isinstance(n, LineNotifier):
+                if n.cfg.admin_to:
+                    results.append(n.send(system_views, system_alt, to=n.cfg.admin_to))
+                    delivered = True
+            else:
+                results.append(n.send(system_views, system_alt))
+                delivered = True
+        if not delivered:
+            for v in system_views:
+                logger.warning(f"[system] {v.title} — {'; '.join(f'{k}: {val}' for k, val in v.facts)} "
+                               f"(未設定 LINE_ADMIN_TO / Webhook，不推送給 LINE 用戶)")
     return all(results)

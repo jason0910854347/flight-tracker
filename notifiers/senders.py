@@ -83,15 +83,17 @@ class LineNotifier:
     def ready(self) -> bool:
         return self.cfg.enabled and bool(self.cfg.channel_access_token)
 
-    def send(self, views: list[CardView], alt_text: str) -> bool:
+    def send(self, views: list[CardView], alt_text: str, to: str | None = None) -> bool:
+        """to=None → LINE_TO (empty = broadcast). An explicit `to` always pushes to that id only."""
+        target = self.cfg.to if to is None else to
         messages = line_flex.render_messages(views, alt_text)
         headers = {"Authorization": f"Bearer {self.cfg.channel_access_token}"}
-        url = _LINE_PUSH_URL if self.cfg.to else _LINE_BROADCAST_URL
+        url = _LINE_PUSH_URL if target else _LINE_BROADCAST_URL
         ok = True
         for i in range(0, len(messages), _LINE_MAX_MESSAGES_PER_CALL):
             body: dict = {"messages": messages[i:i + _LINE_MAX_MESSAGES_PER_CALL]}
-            if self.cfg.to:
-                body["to"] = self.cfg.to
+            if target:
+                body["to"] = target
             try:
                 resp = _post_json(url, body, headers, self.cfg.timeout_sec)
                 if resp.status_code >= 400:
@@ -101,6 +103,6 @@ class LineNotifier:
                 ok = False
                 logger.error(f"[line] send failed: {e}")
         if ok:
-            mode = "push" if self.cfg.to else "broadcast"
+            mode = "push" if target else "broadcast"
             logger.info(f"[line] {mode} {len(views)} card(s) in {len(messages)} message(s)")
         return ok
